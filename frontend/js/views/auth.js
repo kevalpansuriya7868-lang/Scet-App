@@ -1,13 +1,15 @@
 import { api } from '../api.js';
 import { state, rerender } from '../state.js';
-import { h, fields, toast } from '../ui.js';
+import { h, fields, field, toast } from '../ui.js';
 
 const boards = ['esp32_devboard.png', 'hardware_uno.jpg', 'esp32_chip.png', 'circuit_board_module.png'];
 
 export function authView() {
-  // Phase 1: Portal chooser (Astra-style landing)
   let portal = null; // null = show chooser, 'student' | 'admin' = show login
   let tab = null;
+  let pendingSignup = null;
+  const savedFormValues = { student: {}, admin: {} };
+  let prefillLoginUsername = '';
 
   const root = h('div', { class: 'auth-root' });
 
@@ -33,7 +35,7 @@ export function authView() {
           // Student card
           h('button', {
             class: 'portal-card portal-student',
-            onclick: () => { portal = 'student'; tab = 'student-login'; renderPortalLogin(); }
+            onclick: () => { portal = 'student'; tab = 'login'; renderPortalLogin(); }
           },
             h('div', { class: 'pc-icon pc-icon-student' }, '🎓'),
             h('div', { class: 'pc-label' }, 'Student'),
@@ -43,7 +45,7 @@ export function authView() {
           // Admin card
           h('button', {
             class: 'portal-card portal-admin',
-            onclick: () => { portal = 'admin'; tab = 'admin-login'; renderPortalLogin(); }
+            onclick: () => { portal = 'admin'; tab = 'login'; renderPortalLogin(); }
           },
             h('div', { class: 'pc-icon pc-icon-admin' }, '🔐'),
             h('div', { class: 'pc-label' }, 'Faculty / Admin'),
@@ -62,196 +64,521 @@ export function authView() {
     const card = h('div', { class: 'card auth-card stack' });
 
     const login = () => {
-      const f = fields([
-        { name: 'username', label: portal === 'admin' ? 'Admin ID' : 'Enrollment number or @scet.ac.in email', ac: 'username' },
-        { name: 'password', label: 'Password', type: 'password', ac: 'current-password' },
-      ]);
+      const usernameInput = h('input', {
+        type: 'text',
+        placeholder: portal === 'admin' ? 'Faculty ID or @scet.ac.in email' : 'Enrollment number or @scet.ac.in email',
+        autocomplete: 'username',
+        value: prefillLoginUsername || ''
+      });
+      const passwordInput = h('input', {
+        type: 'password',
+        placeholder: 'Enter your password',
+        autocomplete: 'current-password'
+      });
+      const submitBtn = h('button', { class: 'btn primary block ripple', type: 'submit' }, 'Sign in');
       const forgotBtn = h('button', {
         class: 'btn ghost sm forgot-link', type: 'button',
         onclick: () => go('forgot'),
       }, '🔑 Forgot password?');
-      const form = submitForm(f, 'Sign in', async (v) => {
-        if (portal === 'student' && v.username.includes('@') && !v.username.trim().toLowerCase().endsWith('@scet.ac.in')) {
-          throw new Error('Student login is only allowed with an @scet.ac.in email address or your Enrollment number.');
+
+      const form = h('form', {
+        class: 'stack',
+        onsubmit: async (e) => {
+          e.preventDefault();
+          const username = usernameInput.value.trim().toLowerCase();
+          const password = passwordInput.value;
+          if (!username) {
+            return toast(portal === 'admin' ? '⚠️ Please enter your Faculty ID or @scet.ac.in email.' : '⚠️ Please enter your Enrollment number or @scet.ac.in email.', 'err');
+          }
+          if (!password) {
+            return toast('⚠️ Please enter your password.', 'err');
+          }
+          if (username.includes('@') && !username.endsWith('@scet.ac.in')) {
+            return toast('⚠️ Email login is only permitted for official @scet.ac.in accounts.', 'err');
+          }
+
+          submitBtn.disabled = true;
+          submitBtn.innerText = 'Signing in...';
+          try {
+            const r = await api('/api/auth/login', { method: 'POST', body: { username, password, portal } });
+            state.user = r.user;
+            rerender();
+          } catch (err) {
+            toast(err.message || 'Invalid credentials or inactive account.', 'err');
+          } finally {
+            submitBtn.disabled = false;
+            submitBtn.innerText = 'Sign in';
+          }
         }
-        const r = await api('/api/auth/login', { method: 'POST', body: { ...v, portal } });
-        state.user = r.user; rerender();
-      });
+      },
+        field(portal === 'admin' ? 'Faculty ID or Email' : 'Enrollment number or Email', usernameInput),
+        field('Password', passwordInput),
+        submitBtn
+      );
       return h('div', { class: 'stack' }, form, forgotBtn);
     };
 
+    // ──────────── SIGNUP VIEW (STUDENT & FACULTY) ────────────
     const signup = () => {
-      if (portal === 'admin') return adminSignup();
-      // Student signup — enforce @scet.ac.in and email OTP verification
-      const fullNameInput = h('input', { type: 'text', placeholder: 'Enter your full name' });
-      const enrollmentInput = h('input', { type: 'text', placeholder: 'e.g. ET25BTCO177 (Login ID)' });
-      const branchInput = h('input', { type: 'text', placeholder: 'e.g. CO, IT, EC' });
-      const mobileInput = h('input', { type: 'tel', placeholder: '10-digit mobile number', maxlength: '10' });
-      const emailInput = h('input', { type: 'email', placeholder: 'yourname@scet.ac.in', autocomplete: 'email' });
-      const passwordInput = h('input', { type: 'password', placeholder: 'Min 8 characters', autocomplete: 'new-password' });
-      const otpInput = h('input', { type: 'text', placeholder: 'Enter 6-digit code', maxlength: '6', autocomplete: 'one-time-code', style: 'font-size:18px;letter-spacing:4px;text-align:center;font-weight:700;' });
+      const isStudent = portal === 'student';
+      const saved = savedFormValues[portal] || {};
 
-      const otpRow = h('div', { class: 'stack', style: 'display:none; padding:14px; background:rgba(30,58,138,0.06); border-radius:10px; border:1.5px solid rgba(30,58,138,0.25); margin:6px 0;' },
-        h('label', { class: 'field' },
-          h('span', { style: 'font-weight:700; color:var(--blue);' }, '📧 Enter 6-digit Verification Code:'),
-          otpInput
-        ),
-        h('div', { class: 'row between', style: 'margin-top:6px; align-items:center;' },
-          h('span', { class: 'muted small' }, 'Code sent to your @scet.ac.in email.'),
-          h('button', {
-            class: 'btn ghost sm',
-            type: 'button',
-            onclick: async (e) => {
-              await sendOtpHandler(e.target);
-            }
-          }, '🔄 Resend Code')
-        )
-      );
+      const fullNameInput = h('input', {
+        type: 'text',
+        placeholder: isStudent ? 'Enter your full name' : 'e.g. Dr. Alpesh Patel',
+        value: saved.fullName || ''
+      });
+      const idInput = h('input', {
+        type: 'text',
+        placeholder: isStudent ? 'e.g. ET25BTCO180 (Login ID)' : 'e.g. FAC_CO_01 (Login ID)',
+        value: isStudent ? (saved.enrollmentNo || '') : (saved.username || '')
+      });
+      const branchInput = h('input', {
+        type: 'text',
+        placeholder: 'e.g. CO, IT, EC, IC',
+        value: saved.branch || ''
+      });
+      const mobileInput = h('input', {
+        type: 'tel',
+        placeholder: '10-digit mobile number',
+        maxlength: '10',
+        value: saved.mobile || ''
+      });
+      const emailInput = h('input', {
+        type: 'email',
+        placeholder: isStudent ? 'yourname@scet.ac.in' : 'faculty.name@scet.ac.in',
+        autocomplete: 'email',
+        value: saved.email || ''
+      });
+      const passwordInput = h('input', {
+        type: 'password',
+        placeholder: 'Min 8 characters',
+        autocomplete: 'new-password',
+        value: saved.password || ''
+      });
 
-      const submitBtn = h('button', { class: 'btn primary block', type: 'submit' }, 'Send Verification Code');
-      let otpSent = false;
-
-      async function sendOtpHandler(btnEl) {
-        const email = emailInput.value.trim().toLowerCase();
-        const enrollmentNo = enrollmentInput.value.trim().toUpperCase();
-        const mobile = mobileInput.value.trim();
-        const fullName = fullNameInput.value.trim();
-
-        if (!fullName) throw new Error('Please enter your full name.');
-        if (!enrollmentNo) throw new Error('Please enter your enrollment number.');
-        if (!email) throw new Error('Please enter your @scet.ac.in email address.');
-        if (!email.endsWith('@scet.ac.in')) throw new Error('Only official @scet.ac.in email addresses are permitted for student accounts.');
-        if (mobile && !/^\d{10}$/.test(mobile)) throw new Error('Mobile number must be exactly 10 digits.');
-
-        const orig = btnEl.innerText;
-        btnEl.disabled = true;
-        btnEl.innerText = 'Sending OTP...';
-        try {
-          const res = await api('/api/auth/signup/student/send-otp', {
-            method: 'POST',
-            body: { email, enrollmentNo, mobile, fullName }
-          });
-          otpSent = true;
-          otpRow.style.display = 'block';
-          submitBtn.innerText = 'Verify Code & Create Account';
-          toast(res.message || `Verification code sent to ${email}!`);
-          otpInput.focus();
-        } finally {
-          btnEl.disabled = false;
-          btnEl.innerText = orig;
-        }
-      }
+      const submitBtn = h('button', {
+        class: 'btn primary block ripple',
+        type: 'submit'
+      }, '🚀 Send Verification Code →');
 
       const form = h('form', { class: 'stack' },
         field('Full name', fullNameInput),
-        field('Enrollment number (your login ID)', enrollmentInput),
-        field('Branch / dept (e.g. CO, IT, EC)', branchInput),
-        field('Mobile (10 digits)', mobileInput),
-        field('Email (@scet.ac.in only)', emailInput),
+        field(isStudent ? 'Enrollment number (Login ID)' : 'Faculty ID (Login ID)', idInput),
+        field(isStudent ? 'Branch / dept (e.g. CO, IT, EC)' : 'Department (e.g. CO, IT, EC)', branchInput),
+        field('Mobile number (10 digits)', mobileInput),
+        field('Official Email (@scet.ac.in only)', emailInput),
         field('Password (min 8 chars)', passwordInput),
-        otpRow,
         submitBtn
       );
 
       form.onsubmit = async (e) => {
         e.preventDefault();
-        const email = emailInput.value.trim().toLowerCase();
-        const enrollmentNo = enrollmentInput.value.trim().toUpperCase();
         const fullName = fullNameInput.value.trim();
+        const rawId = idInput.value.trim();
         const branch = branchInput.value.trim().toUpperCase();
         const mobile = mobileInput.value.trim();
+        const email = emailInput.value.trim().toLowerCase();
         const password = passwordInput.value;
-        const otp = otpInput.value.trim();
 
-        if (!fullName || !enrollmentNo || !branch) {
-          return toast('Please fill in all required fields.', 'err');
+        // Distinct, explicit notifications on error
+        if (!fullName) {
+          return toast('⚠️ Please enter your full name.', 'err');
+        }
+        if (!rawId) {
+          return toast(isStudent ? '⚠️ Please enter your Enrollment number.' : '⚠️ Please enter your Faculty / Admin ID.', 'err');
+        }
+        if (!isStudent && !/^[a-z0-9._-]{3,32}$/i.test(rawId)) {
+          return toast('⚠️ Faculty ID must be 3-32 characters (letters, numbers, dot, underscore, dash).', 'err');
+        }
+        if (!branch) {
+          return toast('⚠️ Please enter your department / branch (e.g. CO, IT).', 'err');
+        }
+        if (!mobile || !/^\d{10}$/.test(mobile)) {
+          return toast('⚠️ Mobile number must be exactly 10 digits.', 'err');
+        }
+        if (!email) {
+          return toast('⚠️ Email address is required.', 'err');
+        }
+        if (!email.includes('@') || !email.includes('.')) {
+          return toast('⚠️ Please enter a valid email address.', 'err');
         }
         if (!email.endsWith('@scet.ac.in')) {
-          return toast('Only official @scet.ac.in email addresses are allowed.', 'err');
+          return toast('⚠️ Only official @scet.ac.in email addresses are allowed.', 'err');
         }
-        if (!/^\d{10}$/.test(mobile)) {
-          return toast('Mobile number must be exactly 10 digits.', 'err');
-        }
-        if (password.length < 8) {
-          return toast('Password must be at least 8 characters.', 'err');
+        if (!password || password.length < 8) {
+          return toast('⚠️ Password must be at least 8 characters long.', 'err');
         }
 
-        if (!otpSent) {
-          try {
-            await sendOtpHandler(submitBtn);
-          } catch (err) {
-            toast(err.message, 'err');
-          }
-          return;
-        }
+        // Save typed values in case user goes back
+        savedFormValues[portal] = {
+          fullName,
+          branch,
+          mobile,
+          email,
+          password,
+          ...(isStudent ? { enrollmentNo: rawId.toUpperCase() } : { username: rawId.toLowerCase() })
+        };
 
-        if (!otp || otp.length < 6) {
-          return toast('Please enter the 6-digit verification code sent to your email.', 'err');
-        }
-
+        const origText = submitBtn.innerText;
         submitBtn.disabled = true;
-        submitBtn.innerText = 'Creating account...';
+        submitBtn.innerText = 'Sending verification code...';
+
         try {
-          await api('/api/auth/signup/student', {
-            method: 'POST',
-            body: { fullName, enrollmentNo, branch, mobile, email, password, otp }
-          });
-          toast('Account created successfully! You can sign in now.');
-          go('login');
+          if (isStudent) {
+            const enrollmentNo = rawId.toUpperCase();
+            await api('/api/auth/signup/student/send-otp', {
+              method: 'POST',
+              body: { fullName, enrollmentNo, branch, mobile, email }
+            });
+            pendingSignup = { portal: 'student', fullName, enrollmentNo, branch, mobile, email, password };
+          } else {
+            const username = rawId.toLowerCase();
+            await api('/api/auth/signup/admin/send-otp', {
+              method: 'POST',
+              body: { fullName, username, branch, mobile, email }
+            });
+            pendingSignup = { portal: 'admin', fullName, username, branch, mobile, email, password };
+          }
+
+          toast(`✅ Verification code sent! Please check your ${email} inbox.`);
+          go('otp');
         } catch (err) {
-          toast(err.message, 'err');
+          // Exact notifications from backend (e.g. "An account with this email address already exists.")
+          toast(err.message || 'Unable to send verification code. Please check your details.', 'err');
         } finally {
           submitBtn.disabled = false;
-          submitBtn.innerText = 'Verify Code & Create Account';
+          submitBtn.innerText = origText;
         }
       };
 
       return form;
     };
 
+    // ──────────── ULTRA-HEAVY ANIMATED OTP VERIFICATION ────────────
+    const otpView = () => {
+      if (!pendingSignup) {
+        return h('div', { class: 'stack', style: 'text-align:center; padding:20px;' },
+          h('p', { class: 'muted' }, 'No verification in progress.'),
+          h('button', { class: 'btn primary', onclick: () => go('signup') }, 'Go to Sign-up')
+        );
+      }
+
+      const isStudent = pendingSignup.portal === 'student';
+      let remainingSeconds = 600; // 10 minutes
+      let resendTimer = 30; // 30s resend cooldown
+      let timerInterval = null;
+      let resendInterval = null;
+
+      // 6 Digit Inputs
+      const digitInputs = [];
+      for (let i = 0; i < 6; i++) {
+        const inp = h('input', {
+          class: 'otp-box',
+          type: 'text',
+          maxlength: '1',
+          inputmode: 'numeric',
+          pattern: '[0-9]*',
+          autocomplete: 'off',
+          'data-idx': i
+        });
+        digitInputs.push(inp);
+      }
+
+      const boxesContainer = h('div', { class: 'otp-boxes-container' }, ...digitInputs);
+
+      // Countdown display
+      const countdownSpan = h('span', { class: 'otp-countdown-timer' }, '10:00');
+      const countdownBadge = h('div', { class: 'otp-countdown-badge' }, '⏳ Expires in ', countdownSpan);
+
+      // Resend button
+      const resendBtn = h('button', {
+        class: 'otp-resend-btn',
+        type: 'button',
+        disabled: true
+      }, `Resend in ${resendTimer}s`);
+
+      const timerRow = h('div', { class: 'otp-timer-row' },
+        countdownBadge,
+        resendBtn
+      );
+
+      const verifySubmitBtn = h('button', {
+        class: 'otp-submit-btn ripple',
+        type: 'submit'
+      }, 'Verify & Create Account ➔');
+
+      const orbIcon = h('div', { class: 'otp-orb-icon' }, '🛡️');
+      const orbWrapper = h('div', { class: 'otp-orb-wrapper' },
+        h('div', { class: 'otp-pulse-ring-outer' }),
+        h('div', { class: 'otp-pulse-ring-inner' }),
+        h('div', { class: 'otp-orb-core' }, orbIcon)
+      );
+
+      const emailChip = h('div', { class: 'otp-email-chip' },
+        h('span', {}, '✉️'),
+        h('strong', {}, pendingSignup.email),
+        h('button', {
+          class: 'otp-edit-btn',
+          title: 'Change email or details',
+          type: 'button',
+          onclick: () => go('signup')
+        }, '✏️')
+      );
+
+      // Setup Keyboard Navigation across 6 digit boxes
+      digitInputs.forEach((inp, idx) => {
+        inp.oninput = (e) => {
+          const val = inp.value.replace(/[^0-9]/g, '');
+          inp.value = val ? val[0] : '';
+          if (inp.value) {
+            inp.classList.add('filled');
+            if (idx < 5) {
+              digitInputs[idx + 1].focus();
+              digitInputs[idx + 1].select();
+            }
+          } else {
+            inp.classList.remove('filled');
+          }
+        };
+
+        inp.onkeydown = (e) => {
+          if (e.key === 'Backspace') {
+            if (!inp.value && idx > 0) {
+              digitInputs[idx - 1].focus();
+              digitInputs[idx - 1].value = '';
+              digitInputs[idx - 1].classList.remove('filled');
+            } else {
+              inp.value = '';
+              inp.classList.remove('filled');
+            }
+          } else if (e.key === 'ArrowLeft' && idx > 0) {
+            digitInputs[idx - 1].focus();
+          } else if (e.key === 'ArrowRight' && idx < 5) {
+            digitInputs[idx + 1].focus();
+          }
+        };
+
+        inp.onpaste = (e) => {
+          e.preventDefault();
+          const pasted = (e.clipboardData || window.clipboardData).getData('text').replace(/[^0-9]/g, '');
+          if (pasted) {
+            for (let j = 0; j < 6; j++) {
+              if (pasted[j]) {
+                digitInputs[j].value = pasted[j];
+                digitInputs[j].classList.add('filled');
+              }
+            }
+            const nextIdx = Math.min(pasted.length, 5);
+            digitInputs[nextIdx].focus();
+          }
+        };
+      });
+
+      // Start Countdown
+      timerInterval = setInterval(() => {
+        remainingSeconds--;
+        if (remainingSeconds <= 0) {
+          clearInterval(timerInterval);
+          countdownSpan.innerText = 'Expired';
+          countdownBadge.classList.add('expired');
+          countdownBadge.innerHTML = '⚠️ Code expired! Please resend.';
+        } else {
+          const m = String(Math.floor(remainingSeconds / 60)).padStart(2, '0');
+          const s = String(remainingSeconds % 60).padStart(2, '0');
+          countdownSpan.innerText = `${m}:${s}`;
+        }
+      }, 1000);
+
+      // Start Resend Cooldown
+      resendInterval = setInterval(() => {
+        resendTimer--;
+        if (resendTimer <= 0) {
+          clearInterval(resendInterval);
+          resendBtn.disabled = false;
+          resendBtn.innerText = '🔄 Resend Code';
+        } else {
+          resendBtn.innerText = `Resend in ${resendTimer}s`;
+        }
+      }, 1000);
+
+      // Resend OTP Action
+      resendBtn.onclick = async () => {
+        resendBtn.disabled = true;
+        resendBtn.innerText = 'Sending...';
+        try {
+          const endpoint = isStudent ? '/api/auth/signup/student/send-otp' : '/api/auth/signup/admin/send-otp';
+          const body = isStudent
+            ? { fullName: pendingSignup.fullName, enrollmentNo: pendingSignup.enrollmentNo, branch: pendingSignup.branch, mobile: pendingSignup.mobile, email: pendingSignup.email }
+            : { fullName: pendingSignup.fullName, username: pendingSignup.username, branch: pendingSignup.branch, mobile: pendingSignup.mobile, email: pendingSignup.email };
+
+          await api(endpoint, { method: 'POST', body });
+          toast(`✅ New verification code sent to ${pendingSignup.email}!`);
+
+          // Clear boxes
+          digitInputs.forEach(inp => { inp.value = ''; inp.classList.remove('filled'); });
+          digitInputs[0].focus();
+
+          // Reset timers
+          remainingSeconds = 600;
+          countdownBadge.classList.remove('expired');
+          countdownBadge.innerHTML = '⏳ Expires in ';
+          countdownBadge.appendChild(countdownSpan);
+
+          resendTimer = 30;
+          clearInterval(resendInterval);
+          resendInterval = setInterval(() => {
+            resendTimer--;
+            if (resendTimer <= 0) {
+              clearInterval(resendInterval);
+              resendBtn.disabled = false;
+              resendBtn.innerText = '🔄 Resend Code';
+            } else {
+              resendBtn.innerText = `Resend in ${resendTimer}s`;
+            }
+          }, 1000);
+        } catch (err) {
+          toast(err.message || 'Failed to resend code.', 'err');
+          resendBtn.disabled = false;
+          resendBtn.innerText = '🔄 Resend Code';
+        }
+      };
+
+      // Form Submit: Verify Code & Create Account
+      const form = h('form', {
+        class: 'stack otp-screen',
+        onsubmit: async (e) => {
+          e.preventDefault();
+          const otp = digitInputs.map(inp => inp.value).join('');
+
+          if (otp.length < 6) {
+            boxesContainer.classList.add('error-shake');
+            setTimeout(() => boxesContainer.classList.remove('error-shake'), 650);
+            return toast('⚠️ Please enter the complete 6-digit verification code.', 'err');
+          }
+
+          verifySubmitBtn.disabled = true;
+          verifySubmitBtn.innerText = 'Verifying code...';
+
+          try {
+            const endpoint = isStudent ? '/api/auth/signup/student' : '/api/auth/signup/admin';
+            const body = { ...pendingSignup, otp };
+
+            await api(endpoint, { method: 'POST', body });
+
+            // HEAVY CELEBRATION ANIMATION!
+            clearInterval(timerInterval);
+            clearInterval(resendInterval);
+            boxesContainer.classList.add('success-celebrate');
+            orbIcon.innerText = '✅';
+            verifySubmitBtn.innerText = 'Account Created! 🎉';
+            verifySubmitBtn.style.background = 'var(--green)';
+
+            createConfettiBurst();
+            toast('🎉 Verification successful! Your account is now active.');
+
+            prefillLoginUsername = isStudent ? pendingSignup.enrollmentNo : pendingSignup.username;
+            pendingSignup = null;
+
+            setTimeout(() => {
+              go('login');
+            }, 1200);
+          } catch (err) {
+            // HEAVY WRONG OTP SHAKE ANIMATION
+            boxesContainer.classList.add('error-shake');
+            digitInputs.forEach(inp => {
+              inp.value = '';
+              inp.classList.remove('filled');
+            });
+            digitInputs[0].focus();
+            setTimeout(() => boxesContainer.classList.remove('error-shake'), 700);
+
+            toast(err.message || 'Incorrect verification code. Please check your email and try again.', 'err');
+            verifySubmitBtn.disabled = false;
+            verifySubmitBtn.innerText = 'Verify & Create Account ➔';
+          }
+        }
+      },
+        orbWrapper,
+        h('h2', { class: 'otp-heading' }, 'Verify Your Email Address'),
+        h('p', { class: 'otp-subheading' }, 'Enter the 6-digit verification code sent to:'),
+        emailChip,
+        boxesContainer,
+        timerRow,
+        verifySubmitBtn,
+        h('button', {
+          class: 'btn ghost sm',
+          type: 'button',
+          style: 'margin-top:8px;',
+          onclick: () => {
+            clearInterval(timerInterval);
+            clearInterval(resendInterval);
+            go('signup');
+          }
+        }, '← Back to details')
+      );
+
+      // Auto focus first input after mount
+      setTimeout(() => digitInputs[0].focus(), 100);
+
+      return form;
+    };
+
+    // ──────────── FORGOT PASSWORD VIEW ────────────
     const forgotView = () => {
-      const label = portal === 'student' ? 'Enrollment number' : 'Admin ID';
-      const f = fields([{ name: 'username', label }]);
-      const btn = h('button', { class: 'btn primary block', type: 'submit' }, 'Send reset link');
+      const isStudent = portal === 'student';
+      const label = isStudent ? 'Enrollment number or @scet.ac.in email' : 'Faculty ID or @scet.ac.in email';
+      const f = fields([{ name: 'username', label, placeholder: isStudent ? 'e.g. ET25BTCO180 or email' : 'e.g. FAC_CO_01 or email' }]);
+      const btn = h('button', { class: 'btn primary block ripple', type: 'submit' }, 'Send reset link');
       const notFoundBlock = h('div', {
         class: 'forgot-not-found stack',
         style: 'display:none; text-align:center; padding:10px;',
       },
-        h('p', { style: 'color:var(--red);font-weight:700;' }, '❌ This username does not exist.'),
+        h('p', { style: 'color:var(--red);font-weight:700;' }, '❌ This account does not exist.'),
         h('p', { class: 'muted small' }, 'Would you like to create an account?'),
         h('button', {
           class: 'btn ghost block', type: 'button',
           onclick: () => go('signup'),
-        }, `Sign up as ${portal === 'student' ? 'Student' : 'Admin'}`),
+        }, `Sign up as ${isStudent ? 'Student' : 'Faculty / Admin'}`),
       );
       const form = h('form', {
         class: 'stack',
         onsubmit: async (e) => {
-          e.preventDefault(); btn.disabled = true; notFoundBlock.style.display = 'none';
+          e.preventDefault();
+          const val = f.values().username.trim();
+          if (!val) return toast('⚠️ Please enter your ID or @scet.ac.in email.', 'err');
+          btn.disabled = true;
+          btn.innerText = 'Sending reset link...';
+          notFoundBlock.style.display = 'none';
           try {
-            await api('/api/auth/forgot-password', { method: 'POST', body: { username: f.values().username, portal } });
+            await api('/api/auth/forgot-password', { method: 'POST', body: { username: val, portal } });
             const ok = h('div', { class: 'forgot-ok stack' },
               h('div', { class: 'forgot-icon' }, '✉️'),
-              h('p', { class: 'forgot-msg' }, 'Reset link sent! Check your inbox and spam folder.'),
+              h('p', { class: 'forgot-msg' }, 'Password reset link sent! Check your @scet.ac.in inbox and spam folder.'),
               h('button', { class: 'btn ghost sm', onclick: () => go('login') }, '← Back to login'));
             form.replaceWith(ok);
           } catch (err) {
             btn.disabled = false;
-            if (err.message.includes('does not exist')) {
+            btn.innerText = 'Send reset link';
+            if (err.message && err.message.includes('does not exist')) {
               f.el.insertAdjacentElement('afterend', notFoundBlock);
               notFoundBlock.style.display = 'flex';
-            } else toast(err.message, 'err');
+            } else {
+              toast(err.message, 'err');
+            }
           }
         },
       }, f.el, btn);
       return h('div', { class: 'stack' },
-        h('p', { class: 'muted small' }, `Enter your ${label.toLowerCase()} to receive a password reset link.`),
-        form);
+        h('p', { class: 'muted small' }, `Enter your ${isStudent ? 'Enrollment number' : 'Faculty ID'} or official @scet.ac.in email address to receive a secure password reset link.`),
+        form
+      );
     };
 
     const tabDefs = {
       login: { label: portal === 'student' ? 'Student Login' : 'Admin Login', render: login },
-      signup: { label: portal === 'student' ? 'Student Sign-up' : 'Admin Setup', render: signup },
+      signup: { label: portal === 'student' ? 'Student Sign-up' : 'Faculty Sign-up', render: signup },
+      otp: { label: 'Email Verification', render: otpView },
       forgot: { label: 'Reset Password', render: forgotView },
     };
 
@@ -260,17 +587,32 @@ export function authView() {
       const navTabs = ['login', 'signup'];
       const navButtons = navTabs.filter(k => k !== t).map(k =>
         h('button', { class: 'btn ghost sm', onclick: () => go(k) }, tabDefs[k].label));
+
+      let headerNav;
+      if (t === 'otp') {
+        headerNav = h('div', { class: 'row' },
+          h('button', {
+            class: 'btn ghost sm back-btn',
+            onclick: () => go('signup'),
+          }, '← Back to Sign-up')
+        );
+      } else if (t === 'forgot') {
+        headerNav = h('div', { class: 'row' },
+          h('button', { class: 'btn ghost sm back-btn', onclick: () => go('login') }, '← Back to login')
+        );
+      } else {
+        headerNav = h('div', { class: 'row' },
+          h('button', {
+            class: 'btn ghost sm back-btn',
+            onclick: () => { portal = null; renderChooser(); },
+          }, '← Portals'),
+          ...navButtons
+        );
+      }
+
       card.replaceChildren(
-        t !== 'forgot'
-          ? h('div', { class: 'row' },
-            h('button', {
-              class: 'btn ghost sm back-btn',
-              onclick: () => { portal = null; renderChooser(); },
-            }, '← Portals'),
-            ...navButtons,
-          )
-          : h('button', { class: 'btn ghost sm back-btn', onclick: () => go('login') }, '← Back to login'),
-        h('h2', { class: 'auth-title' }, tabDefs[t].label),
+        headerNav,
+        t !== 'otp' ? h('h2', { class: 'auth-title' }, tabDefs[t].label) : h('span', { style: 'display:none;' }),
         tabDefs[t].render(),
       );
       card.classList.remove('auth-card-enter');
@@ -290,7 +632,7 @@ export function authView() {
         h('h2', {}, isStudent ? '🎓 Student Portal' : '🔐 Faculty & Admin Portal'),
         h('p', {}, isStudent
           ? 'Browse components, request hardware, track issues & returns — all in one place.'
-          : 'Manage inventory, issue/return records, gate passes, fines & admin accounts.'),
+          : 'Manage inventory, issue/return records, gate passes, fines & faculty accounts.'),
         h('div', { class: 'boards' },
           boards.map((b, i) => h('img', {
             src: `assets/${b}`, alt: '',
@@ -307,44 +649,45 @@ export function authView() {
   return root;
 }
 
-function adminSignup() {
-  const box = h('div', { class: 'stack' }, h('p', { class: 'muted' }, 'Checking…'));
-  api('/api/auth/bootstrap-status').then(({ firstAdminExists }) => {
-    if (firstAdminExists) {
-      box.replaceChildren(
-        h('div', { class: 'multi-admin-notice stack' },
-          h('div', { class: 'multi-admin-icon' }, '👥'),
-          h('p', { class: 'muted' }, 'A master admin already exists.'),
-          h('p', { class: 'muted small' }, 'Ask a current admin to add your account from the Admins tab.'),
-        ));
-      return;
+// ──────────── CONFETTI PARTICLES BURST ANIMATION ────────────
+function createConfettiBurst() {
+  const container = document.createElement('div');
+  container.className = 'otp-confetti-container';
+  const colors = ['#10b981', '#06b6d4', '#3b82f6', '#ec4899', '#f59e0b', '#8b5cf6'];
+  const emojis = ['✨', '🎉', '🌟', '💎', '🚀'];
+
+  for (let i = 0; i < 45; i++) {
+    const p = document.createElement('div');
+    const isEmoji = i % 5 === 0;
+    if (isEmoji) {
+      p.innerText = emojis[Math.floor(Math.random() * emojis.length)];
+      p.style.fontSize = `${Math.floor(Math.random() * 14) + 16}px`;
+      p.style.background = 'none';
+    } else {
+      p.className = 'otp-confetti-particle';
+      p.style.background = colors[Math.floor(Math.random() * colors.length)];
+      p.style.width = `${Math.floor(Math.random() * 8) + 6}px`;
+      p.style.height = `${Math.floor(Math.random() * 12) + 8}px`;
+      p.style.borderRadius = `${Math.floor(Math.random() * 5)}px`;
     }
-    const f = fields([
-      { name: 'masterUsername', label: 'Master admin username' },
-      { name: 'masterPassword', label: 'Master admin password', type: 'password' },
-      { name: 'username', label: 'Your new admin ID' },
-      { name: 'displayName', label: 'Display name' },
-      { name: 'email', label: 'Email (for password recovery)', type: 'email' },
-      { name: 'password', label: 'Your new password (min 8 chars)', type: 'password', ac: 'new-password' },
-    ]);
-    box.replaceChildren(
-      h('p', { class: 'small muted' }, 'One-time setup. After this, any admin can create more accounts.'),
-      submitForm(f, 'Create first admin', async (v) => {
-        await api('/api/auth/signup/admin', { method: 'POST', body: v });
-        toast('Admin created. Sign in now.');
-      }),
-    );
-  }).catch(e => box.replaceChildren(h('p', {}, e.message)));
-  return box;
+    p.style.position = 'absolute';
+    p.style.left = '50%';
+    p.style.top = '45%';
+
+    const angle = (Math.PI * 2 * i) / 45 + (Math.random() - 0.5) * 0.5;
+    const distance = Math.floor(Math.random() * 260) + 120;
+    const tx = Math.cos(angle) * distance;
+    const ty = Math.sin(angle) * distance - 40;
+    const rot = Math.floor(Math.random() * 720) - 360;
+
+    p.style.setProperty('--tx', `${tx}px`);
+    p.style.setProperty('--ty', `${ty}px`);
+    p.style.setProperty('--rot', `${rot}deg`);
+    p.style.animation = `confettiParticleFly ${Math.random() * 0.5 + 0.9}s cubic-bezier(0.25, 1, 0.5, 1) forwards`;
+
+    container.appendChild(p);
+  }
+  document.body.appendChild(container);
+  setTimeout(() => container.remove(), 1600);
 }
 
-function submitForm(f, label, onSubmit) {
-  const btn = h('button', { class: 'btn primary block ripple', type: 'submit' }, label);
-  return h('form', {
-    class: 'stack',
-    onsubmit: async (e) => {
-      e.preventDefault(); btn.disabled = true;
-      try { await onSubmit(f.values()); } catch (err) { toast(err.message, 'err'); } finally { btn.disabled = false; }
-    },
-  }, f.el, btn);
-}

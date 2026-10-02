@@ -2380,3 +2380,349 @@ html, body {
   border-color: var(--blue);
   color: var(--blue);
 }
+
+/* ═══════════════════════════════════════════════════════
+   HEAVY OTP VERIFICATION & CYBER ANIMATIONS
+   ═══════════════════════════════════════════════════════ */
+
+@keyframes otpEpicEntrance {
+  0% {
+    opacity: 0;
+    transform: perspective(1000px) rotateX(25deg) translateY(40px) scale(0.92);
+    filter: blur(8px);
+  }
+  100% {
+    opacity: 1;
+    transform: perspective(1000px) rotateX(0deg) translateY(0) scale(1);
+    filter: blur(0);
+  }
+}
+
+@keyframes ringSpinClockwise {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+@keyframes ringSpinCounter {
+  0% { transform: rotate(360deg); }
+  100% { transform: rotate(0deg); }
+}
+
+@keyframes shieldFloatPulse {
+  0%, 100% {
+    transform: translateY(0) scale(1);
+    filter: drop-shadow(0 0 16px rgba(6, 182, 212, 0.6));
+  }
+  50% {
+    transform: translateY(-6px) scale(1.08);
+    filter: drop-shadow(0 0 28px rgba(59, 130, 246, 0.9));
+  }
+}
+
+@keyframes digitPop {
+  0% { transform: scale(0.75); }
+  50% { transform: scale(1.22); }
+  100% { transform: scale(1); }
+}
+
+@keyframes heavyErrorShake {
+  0%, 100% { transform: translateX(0); }
+  12% { transform: translateX(-14px) rotate(-2deg); }
+  24% { transform: translateX(14px) rotate(2deg); }
+  36% { transform: translateX(-12px) rotate(-1.5deg); }
+  48% { transform: translateX(12px) rotate(1.5deg); }
+  60% { transform: translateX(-8px) rotate(-1deg); }
+  72% { transform: translateX(8px) rotate(1deg); }
+  84% { transform: translateX(-4px); }
+  92% { transform: translateX(4px); }
+}
+
+@keyframes successShockwave {
+  0% {
+    box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.8), 0 0 20px rgba(16, 185, 129, 0.6);
+    transform: scale(1);
+  }
+  50% {
+    box-shadow: 0 0 0 25px rgba(16, 185, 129, 0), 0 0 40px rgba(16, 185, 129, 0.8);
+    transform: scale(1.04);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(16, 185, 129, 0), 0 0 25px rgba(16, 185, 129, 0.4);
+    transform: scale(1);
+  }
+}
+
+@keyframes cyberBorderGlow {
+  0%, 100% {
+    box-shadow: 0 0 25px rgba(6, 182, 212, 0.25), inset 0 0 15px rgba(6, 182, 212, 0.1);
+  }
+  50% {
+    box-shadow: 0 0 45px rgba(59, 130, 246, 0.45), inset 0 0 25px rgba(59, 130, 246, 0.2);
+  }
+}
+
+@keyframes confettiParticleFly {
+  0% {
+    opacity: 1;
+    transform: translate(0, 0) rotate(0deg) scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: translate(var(--tx), var(--ty)) rotate(var(--rot)) scale(0.2);
+  }
+}
+
+.otp-screen {
+  animation: otpEpicEntrance 0.65s cubic-bezier(0.16, 1, 0.3, 1) both;
+  text-align: center;
+  position: relative;
+  padding: 4px 0;
+}
+
+.otp-orb-wrapper {
+  position: relative;
+  width: 90px;
+  height: 90px;
+  margin: 0 auto 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.otp-pulse-ring-outer {
+  position: absolute;
+  inset: -6px;
+  border-radius: 50%;
+  background: conic-gradient(from 0deg, transparent 20%, #06b6d4 50%, #3b82f6 80%, #10b981 100%);
+  animation: ringSpinClockwise 4s linear infinite;
+  opacity: 0.85;
+  filter: blur(2px);
+}
+
+.otp-pulse-ring-inner {
+  position: absolute;
+  inset: 0px;
+  border-radius: 50%;
+  background: conic-gradient(from 180deg, transparent 20%, #ec4899 50%, #8b5cf6 80%, #06b6d4 100%);
+  animation: ringSpinCounter 3s linear infinite;
+  opacity: 0.75;
+  filter: blur(1.5px);
+}
+
+.otp-orb-core {
+  position: relative;
+  z-index: 2;
+  width: 72px;
+  height: 72px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 35%, rgba(255,255,255,0.95), rgba(240,249,255,0.85) 60%, rgba(224,242,254,0.9));
+  box-shadow: inset 0 2px 6px rgba(255,255,255,0.8), 0 10px 25px rgba(0,0,0,0.15);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.otp-orb-icon {
+  font-size: 34px;
+  line-height: 1;
+  animation: shieldFloatPulse 3s ease-in-out infinite;
+}
+
+.otp-heading {
+  font-size: 21px;
+  font-weight: 800;
+  color: var(--ink);
+  margin: 4px 0 2px;
+  letter-spacing: -0.02em;
+}
+
+.otp-subheading {
+  font-size: 13px;
+  color: var(--muted);
+  margin: 0;
+}
+
+.otp-email-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(30, 64, 175, 0.08);
+  border: 1px solid rgba(30, 64, 175, 0.2);
+  padding: 6px 14px;
+  border-radius: 20px;
+  font-size: 13px;
+  color: var(--blue);
+  margin: 8px auto 14px;
+  max-width: 100%;
+  word-break: break-all;
+}
+
+body.theme-student .otp-email-chip {
+  background: rgba(15, 118, 110, 0.08);
+  border-color: rgba(15, 118, 110, 0.25);
+  color: #0f766e;
+}
+
+.otp-edit-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 2px 4px;
+  font-size: 12px;
+  opacity: 0.7;
+  transition: opacity 0.2s, transform 0.2s;
+}
+
+.otp-edit-btn:hover {
+  opacity: 1;
+  transform: scale(1.2);
+}
+
+.otp-boxes-container {
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+  margin: 10px 0 18px;
+  transition: transform 0.2s ease;
+}
+
+.otp-box {
+  width: 46px;
+  height: 56px;
+  border-radius: 12px;
+  border: 2px solid var(--line);
+  background: var(--soft);
+  color: var(--ink);
+  font-size: 26px;
+  font-weight: 800;
+  text-align: center;
+  outline: none;
+  transition: all 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
+  box-shadow: 0 3px 8px rgba(0, 0, 0, 0.04);
+}
+
+.otp-box:focus {
+  border-color: var(--blue);
+  background: #fff;
+  transform: translateY(-4px) scale(1.08);
+  box-shadow: 0 10px 25px rgba(30, 64, 175, 0.25), 0 0 0 3px var(--blue-l);
+}
+
+body.theme-student .otp-box:focus {
+  border-color: #0d9488;
+  box-shadow: 0 10px 25px rgba(13, 148, 136, 0.3), 0 0 0 3px #ccfbf1;
+}
+
+.otp-box.filled {
+  border-color: var(--blue);
+  background: #fff;
+  animation: digitPop 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+/* Wrong OTP shake */
+.otp-boxes-container.error-shake {
+  animation: heavyErrorShake 0.65s cubic-bezier(0.36, 0.07, 0.19, 0.97) both;
+}
+
+.otp-boxes-container.error-shake .otp-box {
+  border-color: var(--red) !important;
+  background: #fef2f2 !important;
+  color: var(--red) !important;
+  box-shadow: 0 0 18px rgba(220, 38, 38, 0.35) !important;
+}
+
+/* Success celebration */
+.otp-boxes-container.success-celebrate .otp-box {
+  border-color: var(--green) !important;
+  background: #f0fdf4 !important;
+  color: var(--green) !important;
+  animation: successShockwave 0.8s ease-out both;
+}
+
+.otp-timer-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin: 6px 0 14px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.otp-countdown-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.otp-countdown-badge.expired {
+  color: var(--red);
+  font-weight: 700;
+  animation: pulseGlow 1.5s infinite;
+}
+
+.otp-resend-btn {
+  background: none;
+  border: none;
+  color: var(--blue);
+  font-weight: 700;
+  font-size: 13px;
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 6px;
+  transition: all 0.2s;
+}
+
+.otp-resend-btn:disabled {
+  color: var(--muted);
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.otp-resend-btn:not(:disabled):hover {
+  background: var(--blue-l);
+  transform: translateY(-1px);
+}
+
+.otp-submit-btn {
+  width: 100%;
+  padding: 13px 20px;
+  font-size: 15px;
+  font-weight: 700;
+  border-radius: 12px;
+  cursor: pointer;
+  background: linear-gradient(135deg, var(--blue), var(--blue-h));
+  color: #fff;
+  border: none;
+  box-shadow: 0 10px 25px rgba(30, 64, 175, 0.35);
+  transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+  position: relative;
+  overflow: hidden;
+}
+
+body.theme-student .otp-submit-btn {
+  background: linear-gradient(135deg, #0f766e, #0d9488);
+  box-shadow: 0 10px 25px rgba(15, 118, 110, 0.35);
+}
+
+.otp-submit-btn:hover:not(:disabled) {
+  transform: translateY(-2px) scale(1.02);
+  box-shadow: 0 15px 35px rgba(30, 64, 175, 0.45);
+}
+
+.otp-confetti-container {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 9999;
+  overflow: hidden;
+}
+
+.otp-confetti-particle {
+  position: absolute;
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+  animation: confettiParticleFly 1.2s cubic-bezier(0.25, 1, 0.5, 1) forwards;
+}

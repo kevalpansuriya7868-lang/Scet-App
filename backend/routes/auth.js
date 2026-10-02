@@ -48,9 +48,8 @@ router.post('/signup/student/send-otp', signupLimit, async (req, res) => {
   if (!email.endsWith('@scet.ac.in')) throw httpErr(400, 'Only official @scet.ac.in email addresses are permitted for student accounts.');
   if (mobile && !/^\d{10}$/.test(mobile)) throw httpErr(400, 'Mobile must be exactly 10 digits.');
 
-  // Uniqueness: one account per email address
+  // Uniqueness: one account per email address (across all users)
   const emailSnap = await db.collection('users')
-    .where('role', '==', 'student')
     .where('email', '==', email)
     .limit(1).get();
   if (!emailSnap.empty) throw httpErr(409, 'An account with this email address already exists. Please sign in instead.');
@@ -84,13 +83,13 @@ router.post('/signup/student/send-otp', signupLimit, async (req, res) => {
   // Send verification email
   const r = await sendMail({
     to: email,
-    subject: 'SCET Lab Portal - Account Verification Code',
+    subject: 'SCET Lab Portal - Student Account Verification Code',
     text: `Dear ${fullName},\n\nGreetings from Sarvajanik College of Engineering & Technology (SCET)!\n\nYour 6-digit verification code to create your SCET Lab Portal student account is:\n\n    ${otp}\n\nThis verification code is valid for 10 minutes. Do not share this code with anyone.\n\nBest Regards,\nSCET Lab Administration\nSarvajanik College of Engineering & Technology (SCET), Surat`,
   });
 
   if (!r.ok) {
     console.error('[Send OTP] Email delivery failed:', r.error);
-    throw httpErr(400, `Email delivery failed: ${r.error || 'Unable to send to this address'}. Please verify that your @scet.ac.in email is active and typed correctly.`);
+    throw httpErr(400, `Email delivery failed: ${r.error || 'Unable to deliver verification code'}. Please verify that your @scet.ac.in email address is valid and active.`);
   }
 
   const resPayload = { ok: true, message: `Verification code sent to ${email}` };
@@ -135,17 +134,16 @@ router.post('/signup/student', signupLimit, async (req, res) => {
 
   // Uniqueness: one account per email address
   const emailSnap = await db.collection('users')
-    .where('role', '==', 'student')
     .where('email', '==', p.email)
     .limit(1).get();
-  if (!emailSnap.empty) throw httpErr(409, 'An account with this email address already exists.');
+  if (!emailSnap.empty) throw httpErr(409, 'An account with this email address already exists. Please sign in instead.');
 
   // Uniqueness: one account per enrollment number
   const enSnap = await db.collection('users')
     .where('role', '==', 'student')
     .where('enrollmentNo', '==', enrollmentNo)
     .limit(1).get();
-  if (!enSnap.empty) throw httpErr(409, 'An account with this enrollment number already exists.');
+  if (!enSnap.empty) throw httpErr(409, 'An account with this enrollment number already exists. Please sign in instead.');
 
   // Uniqueness: one account per mobile number
   const mobileSnap = await db.collection('users')
@@ -155,35 +153,140 @@ router.post('/signup/student', signupLimit, async (req, res) => {
   if (!mobileSnap.empty) throw httpErr(409, 'An account with this mobile number already exists.');
 
   await createAccount({ username: enrollmentNo, password: b.password, role: 'student', profile: p });
-  res.status(201).json({ ok: true });
+  res.status(201).json({ ok: true, message: 'Student account created successfully!' });
 });
 
-/* ---------- List all students (for ledger auto-fill) ---------- */
-router.get('/students', requireRole('admin'), async (req, res) => {
-  const s = await db.collection('users').where('role', '==', 'student').get();
-  res.json(s.docs.map(d => {
-    const data = d.data();
-    return { enrollmentNo: data.enrollmentNo, displayName: data.displayName, branch: data.branch, mobile: data.mobile, email: data.email || '' };
-  }));
+/* ---------- Faculty / Admin sign-up: Send Verification OTP ---------- */
+router.post('/signup/admin/send-otp', signupLimit, async (req, res) => {
+  const b = req.body || {};
+  const email = clean(b.email).toLowerCase();
+  const username = clean(b.username).toLowerCase();
+  const mobile = clean(b.mobile);
+  const fullName = clean(b.fullName);
+  const branch = clean(b.branch).toUpperCase();
+
+  if (!username) throw httpErr(400, 'Faculty / Admin ID is required.');
+  if (!USERNAME_RE.test(username)) throw httpErr(400, 'Faculty ID must be 3-32 characters: letters, digits, dot, dash, underscore.');
+  if (!fullName) throw httpErr(400, 'Full name is required.');
+  if (!branch) throw httpErr(400, 'Department / Branch is required.');
+  if (!email) throw httpErr(400, 'Email address is required.');
+  if (!EMAIL_RE.test(email)) throw httpErr(400, 'Please enter a valid email address.');
+  if (!email.endsWith('@scet.ac.in')) throw httpErr(400, 'Only official @scet.ac.in email addresses are permitted for faculty accounts.');
+  if (mobile && !/^\d{10}$/.test(mobile)) throw httpErr(400, 'Mobile must be exactly 10 digits.');
+
+  // Uniqueness: check email across all accounts
+  const emailSnap = await db.collection('users')
+    .where('email', '==', email)
+    .limit(1).get();
+  if (!emailSnap.empty) throw httpErr(409, 'An account with this email address already exists. Please sign in instead.');
+
+  // Uniqueness: check username across all accounts
+  const userSnap = await db.collection('users')
+    .where('username', '==', username)
+    .limit(1).get();
+  if (!userSnap.empty) throw httpErr(409, 'An account with this Faculty / Admin ID already exists. Please choose another ID or sign in.');
+
+  // Uniqueness: check mobile if provided
+  if (mobile) {
+    const mobileSnap = await db.collection('users')
+      .where('role', '==', 'admin')
+      .where('mobile', '==', mobile)
+      .limit(1).get();
+    if (!mobileSnap.empty) throw httpErr(409, 'An account with this mobile number already exists.');
+  }
+
+  // Generate 6-digit OTP
+  const otp = newOtp();
+  const otpDocId = `signup__${email.replace(/[^a-z0-9]/g, '_')}`;
+  await db.doc(`otps/${otpDocId}`).set({
+    hash: hmac(otp, cfg.sessionSecret),
+    exp: Date.now() + 10 * 60e3,
+    attempts: 0,
+    email,
+  });
+
+  // Send verification email
+  const r = await sendMail({
+    to: email,
+    subject: 'SCET Lab Portal - Faculty Account Verification Code',
+    text: `Dear ${fullName},\n\nGreetings from Sarvajanik College of Engineering & Technology (SCET)!\n\nYour 6-digit verification code to create your SCET Lab Portal Faculty / Admin account is:\n\n    ${otp}\n\nThis verification code is valid for 10 minutes. Do not share this code with anyone.\n\nBest Regards,\nSCET Lab Administration\nSarvajanik College of Engineering & Technology (SCET), Surat`,
+  });
+
+  if (!r.ok) {
+    console.error('[Send Admin OTP] Email delivery failed:', r.error);
+    throw httpErr(400, `Email delivery failed: ${r.error || 'Unable to deliver verification code'}. Please verify that your @scet.ac.in email address is valid and active.`);
+  }
+
+  const resPayload = { ok: true, message: `Verification code sent to ${email}` };
+  if (!cfg.isProd && r.devFallback) {
+    resPayload.devOtp = r.otp || otp;
+  }
+  res.json(resPayload);
 });
 
-/* ---------- First-admin bootstrap (master credentials, one time only) ---------- */
-router.get('/bootstrap-status', async (req, res) => {
-  res.json({ firstAdminExists: (await db.doc('meta/bootstrap').get()).exists });
-});
-
+/* ---------- Admin sign-up: Faculty Self-Registration with OTP or Master Bootstrap ---------- */
 router.post('/signup/admin', signupLimit, async (req, res) => {
   const b = req.body || {};
+
+  // Flow A: Faculty account registration via @scet.ac.in OTP
+  if (b.otp) {
+    const email = clean(b.email).toLowerCase();
+    const username = clean(b.username).toLowerCase();
+    const fullName = clean(b.fullName || b.displayName);
+    const branch = clean(b.branch).toUpperCase();
+    const mobile = clean(b.mobile);
+    const password = b.password;
+    const otp = clean(b.otp);
+
+    if (!username || !fullName || !branch) throw httpErr(400, 'Faculty ID, full name and department are required.');
+    if (!USERNAME_RE.test(username)) throw httpErr(400, 'Faculty ID must be 3-32 characters: letters, digits, dot, dash, underscore.');
+    if (!email || !EMAIL_RE.test(email) || !email.endsWith('@scet.ac.in')) throw httpErr(400, 'A valid official @scet.ac.in email address is required.');
+    if (typeof password !== 'string' || password.length < 8) throw httpErr(400, 'Password must be at least 8 characters.');
+    if (mobile && !/^\d{10}$/.test(mobile)) throw httpErr(400, 'Mobile must be exactly 10 digits.');
+
+    // Validate OTP
+    const otpDocId = `signup__${email.replace(/[^a-z0-9]/g, '_')}`;
+    const otpRef = db.doc(`otps/${otpDocId}`);
+    const otpSnap = await otpRef.get();
+    if (!otpSnap.exists) throw httpErr(400, 'Verification code not found or expired. Please click "Send Verification Code".');
+    const otpData = otpSnap.data();
+    if (otpData.exp < Date.now()) {
+      await otpRef.delete().catch(() => {});
+      throw httpErr(400, 'Verification code has expired. Please request a new code.');
+    }
+    if (otpData.attempts >= 5) {
+      await otpRef.delete().catch(() => {});
+      throw httpErr(429, 'Too many wrong verification code attempts. Please request a new code.');
+    }
+    if (hmac(otp, cfg.sessionSecret) !== otpData.hash) {
+      await otpRef.update({ attempts: FieldValue.increment(1) });
+      throw httpErr(400, 'Invalid verification code. Please check your email and try again.');
+    }
+    await otpRef.delete().catch(() => {});
+
+    // Check duplicate email & username
+    const emailSnap = await db.collection('users').where('email', '==', email).limit(1).get();
+    if (!emailSnap.empty) throw httpErr(409, 'An account with this email address already exists. Please sign in instead.');
+
+    const userSnap = await db.collection('users').where('username', '==', username).limit(1).get();
+    if (!userSnap.empty) throw httpErr(409, 'An account with this Faculty / Admin ID already exists. Please sign in or choose another ID.');
+
+    const profile = { displayName: fullName, branch, mobile, email };
+    const u = await createAccount({ username, password, role: 'admin', profile });
+    await writeAudit({ adminUid: u.uid, adminUsername: u.username, action: 'FACULTY_ADMIN_REGISTERED', ip: req.ip });
+    return res.status(201).json({ ok: true, message: 'Faculty / Admin account created successfully!' });
+  }
+
+  // Flow B: Master admin bootstrap fallback
   const userOk = safeEqual(clean(b.masterUsername), cfg.masterUser);
   const passOk = safeEqual(String(b.masterPassword ?? ''), cfg.masterPass);
   if (!(userOk && passOk)) throw httpErr(403, 'Invalid master admin credentials.');
 
-  // Atomic one-time claim: create() fails if the document already exists.
   const slot = db.doc('meta/bootstrap');
   try {
     await slot.create({ startedAt: FieldValue.serverTimestamp() });
   } catch (e) {
-    if (e.code === 6) throw httpErr(403, 'The initial admin already exists. Ask a current admin to create your account from the Admins tab after signing in.');
+    if (e.code === 6) throw httpErr(403, 'The initial admin already exists. You can sign up using your @scet.ac.in faculty email or ask an existing admin.');
     throw e;
   }
   try {
@@ -194,7 +297,7 @@ router.post('/signup/admin', signupLimit, async (req, res) => {
     await writeAudit({ adminUid: u.uid, adminUsername: u.username, action: 'FIRST_ADMIN_CREATED', ip: req.ip });
     res.status(201).json({ ok: true });
   } catch (e) {
-    await slot.delete().catch(() => { }); // release the slot if creation failed
+    await slot.delete().catch(() => { });
     throw e;
   }
 });
@@ -237,15 +340,24 @@ router.post('/forgot-password', forgotLimit, async (req, res) => {
 
   try {
     const role = portal === 'student' ? 'student' : 'admin';
-    const snap = await db.collection('users')
-      .where('username', '==', portal === 'student' ? username.toUpperCase() : username)
-      .where('role', '==', role)
-      .limit(1)
-      .get();
+    let snap;
+    if (username.includes('@')) {
+      snap = await db.collection('users')
+        .where('email', '==', username)
+        .where('role', '==', role)
+        .limit(1)
+        .get();
+    } else {
+      snap = await db.collection('users')
+        .where('username', '==', portal === 'student' ? username.toUpperCase() : username)
+        .where('role', '==', role)
+        .limit(1)
+        .get();
+    }
 
-    // Specific error if username doesn't exist (per user request)
+    // Specific error if username/email doesn't exist (per user request)
     if (snap.empty) {
-      return res.status(404).json({ error: 'This username does not exist. Please sign up to continue.' });
+      return res.status(404).json({ error: 'This account does not exist. Please check your ID/email or sign up.' });
     }
 
     const data = snap.docs[0].data();
@@ -274,13 +386,17 @@ router.post('/login', loginLimit, async (req, res) => {
     throw httpErr(400, 'Username, password and portal are required.');
   }
   const fail = () => res.status(401).json({ error: 'Invalid credentials or inactive account.' });
-  // For students: allow logging in with their @scet.ac.in email or enrollment number
+
+  // Allow logging in with @scet.ac.in email or ID (enrollment number or admin ID)
   let loginUsername = username;
-  if (portal === 'student' && username.includes('@')) {
+  if (username.includes('@')) {
     if (!username.endsWith('@scet.ac.in')) {
-      return res.status(403).json({ error: 'Student login is only permitted for @scet.ac.in email accounts.' });
+      return res.status(403).json({ error: 'Login with email is only permitted for official @scet.ac.in email accounts.' });
     }
-    const snap = await db.collection('users').where('role', '==', 'student').where('email', '==', username).limit(1).get();
+    const snap = await db.collection('users')
+      .where('role', '==', portal)
+      .where('email', '==', username)
+      .limit(1).get();
     if (snap.empty) return fail();
     loginUsername = snap.docs[0].data().username;
   }
@@ -295,13 +411,11 @@ router.post('/login', loginLimit, async (req, res) => {
   const decoded = await auth.verifyIdToken(data.idToken);
   if (decoded.role !== portal) return fail(); // students cannot use the admin door and vice versa
 
-  // Students must have a verified @scet.ac.in email on their profile
-  if (portal === 'student') {
-    const userDoc = await db.doc(`users/${decoded.uid}`).get();
-    const profileEmail = (userDoc.data()?.email || '').toLowerCase();
-    if (!profileEmail.endsWith('@scet.ac.in')) {
-      return res.status(403).json({ error: 'Student login is only permitted for @scet.ac.in email accounts.' });
-    }
+  // Verify @scet.ac.in email on profile
+  const userDoc = await db.doc(`users/${decoded.uid}`).get();
+  const profileEmail = (userDoc.data()?.email || '').toLowerCase();
+  if (profileEmail && !profileEmail.endsWith('@scet.ac.in')) {
+    return res.status(403).json({ error: 'Login is only permitted for @scet.ac.in email accounts.' });
   }
 
   const session = await auth.createSessionCookie(data.idToken, { expiresIn: cfg.sessionHours * 3600e3 });
