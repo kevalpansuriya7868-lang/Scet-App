@@ -30,4 +30,9 @@ if (!admin.apps.length) {
   admin.initializeApp({ credential });
 }
 
-module.exports = admin;
+module.exports = {
+  admin,
+  auth: admin.auth(),
+  db: admin.firestore(),
+  FieldValue: admin.firestore.FieldValue,
+};
