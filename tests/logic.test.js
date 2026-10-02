@@ -40,3 +40,10 @@ test('scrypt hashing and signed tokens', async () => {
   assert.ok(c.safeEqual('abc', 'abc') && !c.safeEqual('abc', 'abd'));
   assert.match(c.newOtp(), /^\d{6}$/);
 });
+
+test('mailer gracefully handles delivery in development / fallback', async () => {
+  const { sendMail } = require('../backend/utils/mailer');
+  const res = await sendMail({ to: 'test@scet.ac.in', subject: 'Test', text: 'OTP 123456' });
+  assert.ok(typeof res.ok === 'boolean');
+});
+

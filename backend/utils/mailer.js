@@ -8,10 +8,18 @@ const smtpReady = cfg.smtp.enabled && cfg.smtp.user && cfg.smtp.pass;
 
 const transport = smtpReady
   ? nodemailer.createTransport({
-    host: cfg.smtp.host, port: cfg.smtp.port, secure: cfg.smtp.port === 465,
+    host: cfg.smtp.host,
+    port: cfg.smtp.port,
+    secure: cfg.smtp.port === 465,
     auth: { user: cfg.smtp.user, pass: cfg.smtp.pass },
+    connectionTimeout: 3500, // 3.5s max to connect (avoids 2min hangs on cloud hosts like Render)
+    greetingTimeout: 3500,   // 3.5s max greeting
+    socketTimeout: 5000,     // 5s max socket inactivity
   })
   : null;
+
+let lastSmtpFailure = 0;
+let lastSmtpError = '';
 
 async function sendMail({ to, subject, text, attachments }) {
   if (!transport || !to) {
@@ -22,15 +30,27 @@ async function sendMail({ to, subject, text, attachments }) {
       console.log(`SUBJECT : ${subject}`);
       console.log(`BODY    :\n${text}`);
       console.log('==========================================\n');
-      return { ok: true };   // treat as sent so the flow continues
+      return { ok: true, devFallback: true };   // treat as sent so the flow continues
     }
     return { ok: false, error: 'SMTP is not configured. Set SMTP_USER and SMTP_PASS in .env to enable email delivery.' };
   }
+
+  // Fast-fail if host recently timed out on SMTP ports (Render free tier egress drops SMTP packets)
+  if (lastSmtpFailure && (Date.now() - lastSmtpFailure < 60000)) {
+    console.warn(`[Mailer] Skipping slow SMTP connection (recent timeout: ${lastSmtpError}). Using instant fallback.`);
+    return { ok: false, error: lastSmtpError, isTimeout: true, isCachedTimeout: true };
+  }
+
   try {
     await transport.sendMail({ from: cfg.smtp.from || cfg.smtp.user, to, subject, text, attachments });
+    lastSmtpFailure = 0;
+    lastSmtpError = '';
     return { ok: true };
   } catch (e) {
-    console.error('Mail failed:', e.message);
+    console.warn('[Mailer] Send failed:', e.message);
+    lastSmtpFailure = Date.now();
+    lastSmtpError = e.message;
+    const isTimeout = /timeout|etimedout|econnrefused|esocket/i.test(e.message || '');
     if (!cfg.isProd) {
       console.log('\n========== [DEV EMAIL FALLBACK - SMTP SEND FAILED] ==========');
       console.log(`ERROR   : ${e.message}`);
@@ -38,9 +58,9 @@ async function sendMail({ to, subject, text, attachments }) {
       console.log(`SUBJECT : ${subject}`);
       console.log(`BODY    :\n${text}`);
       console.log('=============================================================\n');
-      return { ok: true, devFallback: true, error: e.message };
+      return { ok: true, devFallback: true, error: e.message, isTimeout };
     }
-    return { ok: false, error: e.message };
+    return { ok: false, error: e.message, isTimeout };
   }
 }
 

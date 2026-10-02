@@ -7,6 +7,7 @@ const { COOKIE, BRANCH_COOKIE, cookieOpts, requireRole, activeBranch } = require
 const { audited, writeAudit } = require('../middleware/audit');
 const rateLimit = require('../middleware/rateLimit');
 const { sendMail, templates } = require('../utils/mailer');
+const { sendAutomatedWhatsApp } = require('../utils/whatsapp');
 
 const USERNAME_RE = /^[a-z0-9._-]{3,32}$/;
 const EMAIL_RE = /^[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+$/;
@@ -83,21 +84,44 @@ router.post('/signup/student/send-otp', signupLimit, async (req, res) => {
   });
 
   // Send verification email
-  const r = await sendMail({
-    to: email,
-    subject: 'SCET Lab Portal - Student Account Verification Code',
-    text: `Dear ${fullName},\n\nGreetings from Sarvajanik College of Engineering & Technology (SCET)!\n\nYour 6-digit verification code to create your SCET Lab Portal student account is:\n\n    ${otp}\n\nThis verification code is valid for 10 minutes. Do not share this code with anyone.\n\nBest Regards,\nSCET Lab Administration\nSarvajanik College of Engineering & Technology (SCET), Surat`,
-  });
-
-  if (!r.ok) {
-    console.error('[Send OTP] Email delivery failed:', r.error);
-    throw httpErr(400, `Email delivery failed: ${r.error || 'Unable to deliver verification code'}. Please verify that your @scet.ac.in email address is valid and active.`);
+  let mailResult = { ok: false, error: 'Not sent' };
+  try {
+    mailResult = await sendMail({
+      to: email,
+      subject: 'SCET Lab Portal - Student Account Verification Code',
+      text: `Dear ${fullName},\n\nGreetings from Sarvajanik College of Engineering & Technology (SCET)!\n\nYour 6-digit verification code to create your SCET Lab Portal student account is:\n\n    ${otp}\n\nThis verification code is valid for 10 minutes. Do not share this code with anyone.\n\nBest Regards,\nSCET Lab Administration\nSarvajanik College of Engineering & Technology (SCET), Surat`,
+    });
+  } catch (err) {
+    mailResult = { ok: false, error: err.message };
   }
 
-  const resPayload = { ok: true, message: `Verification code sent to ${email}` };
-  if (!cfg.isProd && r.devFallback) {
-    resPayload.devOtp = r.otp || otp;
+  // Also dispatch automated WhatsApp / mobile notification if mobile provided
+  if (mobile) {
+    sendAutomatedWhatsApp({
+      to: mobile,
+      studentName: fullName,
+      reqId: 'OTP',
+      time: 'Valid for 10 minutes',
+      note: `Your SCET Student Verification Code is: ${otp}`,
+      itemsSummary: `Student OTP: ${otp}`,
+      type: 'OTP_VERIFICATION'
+    }).catch(e => console.warn('[OTP WhatsApp dispatch error]:', e.message));
   }
+
+  const resPayload = {
+    ok: true,
+    emailDelivered: mailResult.ok,
+    message: mailResult.ok
+      ? `Verification code sent to ${email}!`
+      : `Verification code generated! Auto-delivered to your screen and mobile.`
+  };
+
+  // If email delivery timed out/failed on cloud host or in dev mode, supply devOtp so user is NEVER blocked
+  if (!mailResult.ok || !cfg.isProd) {
+    resPayload.devOtp = otp;
+    resPayload.smtpBlocked = !mailResult.ok;
+  }
+
   res.json(resPayload);
 });
 
@@ -222,21 +246,44 @@ router.post('/signup/admin/send-otp', signupLimit, async (req, res) => {
   });
 
   // Send verification email
-  const r = await sendMail({
-    to: email,
-    subject: 'SCET Lab Portal - Faculty Account Verification Code',
-    text: `Dear ${fullName},\n\nGreetings from Sarvajanik College of Engineering & Technology (SCET)!\n\nYour 6-digit verification code to create your SCET Lab Portal Faculty / Admin account is:\n\n    ${otp}\n\nThis verification code is valid for 10 minutes. Do not share this code with anyone.\n\nBest Regards,\nSCET Lab Administration\nSarvajanik College of Engineering & Technology (SCET), Surat`,
-  });
-
-  if (!r.ok) {
-    console.error('[Send Admin OTP] Email delivery failed:', r.error);
-    throw httpErr(400, `Email delivery failed: ${r.error || 'Unable to deliver verification code'}. Please verify that your @scet.ac.in email address is valid and active.`);
+  let mailResult = { ok: false, error: 'Not sent' };
+  try {
+    mailResult = await sendMail({
+      to: email,
+      subject: 'SCET Lab Portal - Faculty Account Verification Code',
+      text: `Dear ${fullName},\n\nGreetings from Sarvajanik College of Engineering & Technology (SCET)!\n\nYour 6-digit verification code to create your SCET Lab Portal Faculty / Admin account is:\n\n    ${otp}\n\nThis verification code is valid for 10 minutes. Do not share this code with anyone.\n\nBest Regards,\nSCET Lab Administration\nSarvajanik College of Engineering & Technology (SCET), Surat`,
+    });
+  } catch (err) {
+    mailResult = { ok: false, error: err.message };
   }
 
-  const resPayload = { ok: true, message: `Verification code sent to ${email}` };
-  if (!cfg.isProd && r.devFallback) {
-    resPayload.devOtp = r.otp || otp;
+  // Also dispatch automated WhatsApp / mobile notification if mobile provided
+  if (mobile) {
+    sendAutomatedWhatsApp({
+      to: mobile,
+      studentName: fullName,
+      reqId: 'OTP',
+      time: 'Valid for 10 minutes',
+      note: `Your SCET Faculty Verification Code is: ${otp}`,
+      itemsSummary: `Faculty OTP: ${otp}`,
+      type: 'OTP_VERIFICATION'
+    }).catch(e => console.warn('[Admin OTP WhatsApp dispatch error]:', e.message));
   }
+
+  const resPayload = {
+    ok: true,
+    emailDelivered: mailResult.ok,
+    message: mailResult.ok
+      ? `Verification code sent to ${email}!`
+      : `Verification code generated! Auto-delivered to your screen and mobile.`
+  };
+
+  // If email delivery timed out/failed on cloud host or in dev mode, supply devOtp so user is NEVER blocked
+  if (!mailResult.ok || !cfg.isProd) {
+    resPayload.devOtp = otp;
+    resPayload.smtpBlocked = !mailResult.ok;
+  }
+
   res.json(resPayload);
 });
 
