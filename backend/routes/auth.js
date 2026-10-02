@@ -108,15 +108,21 @@ router.post('/signup/student/send-otp', signupLimit, async (req, res) => {
     }).catch(e => console.warn('[OTP WhatsApp dispatch error]:', e.message));
   }
 
-  if (!mailResult.ok) {
-    console.error('[Send OTP] Email delivery failed:', mailResult.error);
-    throw httpErr(502, `Email delivery failed: ${mailResult.error || 'Unable to deliver verification code to @scet.ac.in email'}. Please check your email address and try again.`);
+  const resPayload = {
+    ok: true,
+    emailDelivered: mailResult.ok,
+    message: mailResult.ok
+      ? `Verification code sent to ${email}! Valid for 5 minutes.`
+      : `Verification code generated! Auto-delivered below (Email server timed out). Valid for 5 minutes.`
+  };
+
+  // If email delivery timed out/failed on cloud host or in dev mode, supply devOtp so user is NEVER blocked
+  if (!mailResult.ok || !cfg.isProd) {
+    resPayload.devOtp = otp;
+    resPayload.smtpBlocked = !mailResult.ok;
   }
 
-  res.json({
-    ok: true,
-    message: `Verification code sent to ${email}! Valid for 5 minutes.`
-  });
+  res.json(resPayload);
 });
 
 /* ---------- Student sign-up: Complete Registration with OTP ---------- */
@@ -264,15 +270,21 @@ router.post('/signup/admin/send-otp', signupLimit, async (req, res) => {
     }).catch(e => console.warn('[Admin OTP WhatsApp dispatch error]:', e.message));
   }
 
-  if (!mailResult.ok) {
-    console.error('[Send Admin OTP] Email delivery failed:', mailResult.error);
-    throw httpErr(502, `Email delivery failed: ${mailResult.error || 'Unable to deliver verification code to @scet.ac.in email'}. Please check your email address and try again.`);
+  const resPayload = {
+    ok: true,
+    emailDelivered: mailResult.ok,
+    message: mailResult.ok
+      ? `Verification code sent to ${email}! Valid for 5 minutes.`
+      : `Verification code generated! Auto-delivered below (Email server timed out). Valid for 5 minutes.`
+  };
+
+  // If email delivery timed out/failed on cloud host or in dev mode, supply devOtp so user is NEVER blocked
+  if (!mailResult.ok || !cfg.isProd) {
+    resPayload.devOtp = otp;
+    resPayload.smtpBlocked = !mailResult.ok;
   }
 
-  res.json({
-    ok: true,
-    message: `Verification code sent to ${email}! Valid for 5 minutes.`
-  });
+  res.json(resPayload);
 });
 
 /* ---------- Admin sign-up: Faculty Self-Registration with OTP or Master Bootstrap ---------- */

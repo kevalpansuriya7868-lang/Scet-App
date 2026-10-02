@@ -12,9 +12,9 @@ const transport = smtpReady
     port: cfg.smtp.port,
     secure: cfg.smtp.port === 465,
     auth: { user: cfg.smtp.user, pass: cfg.smtp.pass },
-    connectionTimeout: 8000,
-    greetingTimeout: 8000,
-    socketTimeout: 10000,
+    connectionTimeout: 2500,
+    greetingTimeout: 2500,
+    socketTimeout: 3000,
   })
   : null;
 

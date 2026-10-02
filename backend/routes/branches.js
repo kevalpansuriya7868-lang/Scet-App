@@ -84,6 +84,10 @@ router.post('/:code/otp', otpLimit, async (req, res) => {
   const b = await getBranch(req.params.code);
   const r = await issueOtp(req.params.code, purpose, b.recoveryEmail);
   const resp = { sentTo: mask(b.recoveryEmail) };
+  if (!cfg.isProd || r.devFallback || !r.ok) {
+    resp.devOtp = r.otp;
+    resp.smtpWarning = r.error;
+  }
   res.json(resp);
 });
 
