@@ -7,15 +7,18 @@ const { gatePassNo } = require('./issues');
 const smtpReady = cfg.smtp.enabled && cfg.smtp.user && cfg.smtp.pass;
 
 const transport = smtpReady
-  ? nodemailer.createTransport({
-    host: cfg.smtp.host,
-    port: cfg.smtp.port,
-    secure: cfg.smtp.port === 465,
-    auth: { user: cfg.smtp.user, pass: cfg.smtp.pass },
-    connectionTimeout: 2500,
-    greetingTimeout: 2500,
-    socketTimeout: 3000,
-  })
+  ? (cfg.smtp.host && cfg.smtp.host !== 'smtp.gmail.com'
+      ? nodemailer.createTransport({
+          host: cfg.smtp.host,
+          port: cfg.smtp.port,
+          secure: cfg.smtp.port === 465,
+          auth: { user: cfg.smtp.user, pass: cfg.smtp.pass },
+        })
+      : nodemailer.createTransport({
+          service: 'gmail',
+          auth: { user: cfg.smtp.user, pass: cfg.smtp.pass },
+        })
+    )
   : null;
 
 async function sendMail({ to, subject, text, attachments }) {
@@ -125,8 +128,9 @@ async function sendMail({ to, subject, text, attachments }) {
   }
 
   try {
-    await transport.sendMail({ from: cfg.smtp.from || cfg.smtp.user, to, subject, text, attachments });
-    return { ok: true, provider: 'smtp' };
+    const info = await transport.sendMail({ from: cfg.smtp.from || cfg.smtp.user, to, subject, text, attachments });
+    console.log(`[Mailer] Successfully delivered email to ${to} via SMTP (msgId: ${info.messageId})`);
+    return { ok: true, provider: 'smtp', messageId: info.messageId };
   } catch (e) {
     console.warn('[Mailer] SMTP delivery failed:', e.message);
     return { ok: false, error: e.message };

@@ -290,14 +290,14 @@ export function authView() {
               method: 'POST',
               body: { fullName, enrollmentNo, branch, mobile, email }
             });
-            pendingSignup = { portal: 'student', fullName, enrollmentNo, branch, mobile, email, password, devOtp: otpRes?.devOtp, smtpBlocked: otpRes?.smtpBlocked };
+            pendingSignup = { portal: 'student', fullName, enrollmentNo, branch, mobile, email, password };
           } else {
             const username = rawId.toLowerCase();
             otpRes = await api('/api/auth/signup/admin/send-otp', {
               method: 'POST',
               body: { masterUsername, masterPassword, fullName, username, branch, mobile, email }
             });
-            pendingSignup = { portal: 'admin', masterUsername, masterPassword, fullName, username, branch, mobile, email, password, devOtp: otpRes?.devOtp, smtpBlocked: otpRes?.smtpBlocked };
+            pendingSignup = { portal: 'admin', masterUsername, masterPassword, fullName, username, branch, mobile, email, password };
           }
 
           toast(otpRes?.message || `✅ Verification code sent! Please check your ${email} inbox.`);
@@ -376,48 +376,9 @@ export function authView() {
 
       const emailChip = h('div', { class: 'otp-email-chip' },
         h('span', {}, '✉️'),
-        h('strong', {}, pendingSignup.email),
-        h('button', {
-          class: 'otp-edit-btn',
-          title: 'Change email or details',
-          type: 'button',
-          onclick: () => go('signup')
-        }, '✏️')
+        h('span', { style: 'color: var(--muted); font-size: 0.85rem;' }, 'Sent to:'),
+        h('strong', {}, pendingSignup.email)
       );
-
-      // Instant code banner when cloud host SMTP times out or dev fallback triggers
-      let otpDevBanner = null;
-      if (pendingSignup.devOtp) {
-        otpDevBanner = h('div', {
-          class: 'otp-instant-banner',
-          style: 'background: linear-gradient(135deg, rgba(16, 185, 129, 0.16), rgba(5, 150, 105, 0.1)); border: 1.5px solid rgba(52, 211, 153, 0.45); border-radius: 12px; padding: 12px 16px; margin: 10px auto; max-width: 440px; text-align: center; box-shadow: 0 4px 18px rgba(16, 185, 129, 0.12);'
-        },
-          h('div', { style: 'font-size: 0.85rem; font-weight: 600; color: #a7f3d0; margin-bottom: 4px; display: flex; align-items: center; justify-content: center; gap: 6px;' },
-            h('span', {}, '⚡'),
-            h('span', {}, pendingSignup.smtpBlocked
-              ? 'Instant Verification Code (Mail Server Timeout Fallback)'
-              : 'Instant Verification Code'
-            )
-          ),
-          h('div', {
-            style: 'font-size: 1.7rem; font-weight: 800; letter-spacing: 8px; color: #34d399; font-family: monospace; margin: 4px 0;'
-          }, String(pendingSignup.devOtp)),
-          h('div', { style: 'font-size: 0.76rem; color: #94a3b8;' },
-            'Boxes pre-filled below. Click "Verify & Create Account" to proceed!'
-          )
-        );
-
-        // Auto-fill digit boxes with instant code
-        if (String(pendingSignup.devOtp).length === 6) {
-          const chars = String(pendingSignup.devOtp).split('');
-          chars.forEach((c, idx) => {
-            if (digitInputs[idx]) {
-              digitInputs[idx].value = c;
-              digitInputs[idx].classList.add('filled');
-            }
-          });
-        }
-      }
 
       // Setup Keyboard Navigation across 6 digit boxes
       digitInputs.forEach((inp, idx) => {
@@ -508,13 +469,6 @@ export function authView() {
           const res = await api(endpoint, { method: 'POST', body });
           toast(res?.message || `✅ New verification code sent to ${pendingSignup.email}!`);
 
-          if (res?.devOtp) {
-            pendingSignup.devOtp = res.devOtp;
-            pendingSignup.smtpBlocked = res.smtpBlocked;
-            rerender();
-            return;
-          }
-
           // Clear boxes
           digitInputs.forEach(inp => { inp.value = ''; inp.classList.remove('filled'); });
           digitInputs[0].focus();
@@ -603,20 +557,9 @@ export function authView() {
         h('h2', { class: 'otp-heading' }, 'Verify Your Email Address'),
         h('p', { class: 'otp-subheading' }, 'Enter the 6-digit verification code sent to:'),
         emailChip,
-        ...(otpDevBanner ? [otpDevBanner] : []),
         boxesContainer,
         timerRow,
-        verifySubmitBtn,
-        h('button', {
-          class: 'btn ghost sm',
-          type: 'button',
-          style: 'margin-top:8px;',
-          onclick: () => {
-            clearInterval(timerInterval);
-            clearInterval(resendInterval);
-            go('signup');
-          }
-        }, '← Back to details')
+        verifySubmitBtn
       );
 
       // Auto focus first input after mount

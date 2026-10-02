@@ -108,21 +108,14 @@ router.post('/signup/student/send-otp', signupLimit, async (req, res) => {
     }).catch(e => console.warn('[OTP WhatsApp dispatch error]:', e.message));
   }
 
-  const resPayload = {
-    ok: true,
-    emailDelivered: mailResult.ok,
-    message: mailResult.ok
-      ? `Verification code sent to ${email}! Valid for 5 minutes.`
-      : `Verification code generated! Auto-delivered below (Email server timed out). Valid for 5 minutes.`
-  };
-
-  // If email delivery timed out/failed on cloud host or in dev mode, supply devOtp so user is NEVER blocked
-  if (!mailResult.ok || !cfg.isProd) {
-    resPayload.devOtp = otp;
-    resPayload.smtpBlocked = !mailResult.ok;
+  if (!mailResult.ok) {
+    throw httpErr(500, `Failed to send verification email to ${email}: ${mailResult.error || 'Connection error'}. Please check your email and try again.`);
   }
 
-  res.json(resPayload);
+  res.json({
+    ok: true,
+    message: `Verification code sent to ${email}! Valid for 5 minutes.`
+  });
 });
 
 /* ---------- Student sign-up: Complete Registration with OTP ---------- */
@@ -270,21 +263,14 @@ router.post('/signup/admin/send-otp', signupLimit, async (req, res) => {
     }).catch(e => console.warn('[Admin OTP WhatsApp dispatch error]:', e.message));
   }
 
-  const resPayload = {
-    ok: true,
-    emailDelivered: mailResult.ok,
-    message: mailResult.ok
-      ? `Verification code sent to ${email}! Valid for 5 minutes.`
-      : `Verification code generated! Auto-delivered below (Email server timed out). Valid for 5 minutes.`
-  };
-
-  // If email delivery timed out/failed on cloud host or in dev mode, supply devOtp so user is NEVER blocked
-  if (!mailResult.ok || !cfg.isProd) {
-    resPayload.devOtp = otp;
-    resPayload.smtpBlocked = !mailResult.ok;
+  if (!mailResult.ok) {
+    throw httpErr(500, `Failed to send verification email to ${email}: ${mailResult.error || 'Connection error'}. Please check your email and try again.`);
   }
 
-  res.json(resPayload);
+  res.json({
+    ok: true,
+    message: `Verification code sent to ${email}! Valid for 5 minutes.`
+  });
 });
 
 /* ---------- Admin sign-up: Faculty Self-Registration with OTP or Master Bootstrap ---------- */
