@@ -10,8 +10,9 @@ const { sendMail, templates } = require('../utils/mailer');
 
 const USERNAME_RE = /^[a-z0-9._-]{3,32}$/;
 const EMAIL_RE = /^[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+$/;
-// Firebase Auth is email-based; usernames are mapped to a synthetic, never-mailed address.
-const toEmail = (u) => `${u}@lab-users.scet.invalid`;
+// Firebase Auth is email-based; usernames are mapped to a synthetic, role-scoped, never-mailed address.
+const toEmail = (u, role = 'student') => `${role}__${clean(u).toLowerCase()}@lab-users.scet.invalid`;
+const legacyEmail = (u) => `${clean(u).toLowerCase()}@lab-users.scet.invalid`;
 
 const loginLimit = rateLimit({ max: 5, key: (r) => `${r.ip}|${clean(r.body?.username).toLowerCase()}` });
 const signupLimit = rateLimit({ max: 10, key: (r) => r.ip });
@@ -23,9 +24,9 @@ async function createAccount({ username, password, role, profile }) {
   if (typeof password !== 'string' || password.length < 8) throw httpErr(400, 'Password must be at least 8 characters.');
   let rec;
   try {
-    rec = await auth.createUser({ email: toEmail(username), password, displayName: profile.displayName });
+    rec = await auth.createUser({ email: toEmail(username, role), password, displayName: profile.displayName });
   } catch (e) {
-    if (e.code === 'auth/email-already-exists') throw httpErr(409, 'That username is already taken.');
+    if (e.code === 'auth/email-already-exists') throw httpErr(409, `An account with this ${role === 'student' ? 'enrollment number' : 'ID'} already exists.`);
     throw e;
   }
   await auth.setCustomUserClaims(rec.uid, { role, username });
@@ -48,31 +49,32 @@ router.post('/signup/student/send-otp', signupLimit, async (req, res) => {
   if (!email.endsWith('@scet.ac.in')) throw httpErr(400, 'Only official @scet.ac.in email addresses are permitted for student accounts.');
   if (mobile && !/^\d{10}$/.test(mobile)) throw httpErr(400, 'Mobile must be exactly 10 digits.');
 
-  // Uniqueness: one account per email address (across all users)
+  // Uniqueness: one account per email address within student role (faculty accounts with same email allowed)
   const emailSnap = await db.collection('users')
+    .where('role', '==', 'student')
     .where('email', '==', email)
     .limit(1).get();
-  if (!emailSnap.empty) throw httpErr(409, 'An account with this email address already exists. Please sign in instead.');
+  if (!emailSnap.empty) throw httpErr(409, 'A student account with this email address already exists. Please sign in instead.');
 
   // Uniqueness: one account per enrollment number
   const enSnap = await db.collection('users')
     .where('role', '==', 'student')
     .where('enrollmentNo', '==', enrollmentNo)
     .limit(1).get();
-  if (!enSnap.empty) throw httpErr(409, 'An account with this enrollment number already exists. Please sign in instead.');
+  if (!enSnap.empty) throw httpErr(409, 'A student account with this enrollment number already exists. Please sign in instead.');
 
-  // Uniqueness: one account per mobile number
+  // Uniqueness: one account per mobile number within student role
   if (mobile) {
     const mobileSnap = await db.collection('users')
       .where('role', '==', 'student')
       .where('mobile', '==', mobile)
       .limit(1).get();
-    if (!mobileSnap.empty) throw httpErr(409, 'An account with this mobile number already exists.');
+    if (!mobileSnap.empty) throw httpErr(409, 'A student account with this mobile number already exists.');
   }
 
-  // Generate 6-digit OTP
+  // Generate 6-digit OTP scoped specifically to student signup
   const otp = newOtp();
-  const otpDocId = `signup__${email.replace(/[^a-z0-9]/g, '_')}`;
+  const otpDocId = `signup_student__${email.replace(/[^a-z0-9]/g, '_')}`;
   await db.doc(`otps/${otpDocId}`).set({
     hash: hmac(otp, cfg.sessionSecret),
     exp: Date.now() + 10 * 60e3,
@@ -112,7 +114,7 @@ router.post('/signup/student', signupLimit, async (req, res) => {
   // Validate OTP
   const otp = clean(b.otp);
   if (!otp) throw httpErr(400, 'Verification code (OTP) is required. Please verify your email first.');
-  const otpDocId = `signup__${p.email.replace(/[^a-z0-9]/g, '_')}`;
+  const otpDocId = `signup_student__${p.email.replace(/[^a-z0-9]/g, '_')}`;
   const otpRef = db.doc(`otps/${otpDocId}`);
   const otpSnap = await otpRef.get();
   if (!otpSnap.exists) throw httpErr(400, 'Verification code not found or expired. Please click "Send Verification Code".');
@@ -132,25 +134,28 @@ router.post('/signup/student', signupLimit, async (req, res) => {
   // OTP is verified - consume it
   await otpRef.delete().catch(() => {});
 
-  // Uniqueness: one account per email address
+  // Uniqueness: one account per email address within student role
   const emailSnap = await db.collection('users')
+    .where('role', '==', 'student')
     .where('email', '==', p.email)
     .limit(1).get();
-  if (!emailSnap.empty) throw httpErr(409, 'An account with this email address already exists. Please sign in instead.');
+  if (!emailSnap.empty) throw httpErr(409, 'A student account with this email address already exists. Please sign in instead.');
 
-  // Uniqueness: one account per enrollment number
+  // Uniqueness: one account per enrollment number within student role
   const enSnap = await db.collection('users')
     .where('role', '==', 'student')
     .where('enrollmentNo', '==', enrollmentNo)
     .limit(1).get();
-  if (!enSnap.empty) throw httpErr(409, 'An account with this enrollment number already exists. Please sign in instead.');
+  if (!enSnap.empty) throw httpErr(409, 'A student account with this enrollment number already exists. Please sign in instead.');
 
-  // Uniqueness: one account per mobile number
-  const mobileSnap = await db.collection('users')
-    .where('role', '==', 'student')
-    .where('mobile', '==', p.mobile)
-    .limit(1).get();
-  if (!mobileSnap.empty) throw httpErr(409, 'An account with this mobile number already exists.');
+  // Uniqueness: one account per mobile number within student role
+  if (p.mobile) {
+    const mobileSnap = await db.collection('users')
+      .where('role', '==', 'student')
+      .where('mobile', '==', p.mobile)
+      .limit(1).get();
+    if (!mobileSnap.empty) throw httpErr(409, 'A student account with this mobile number already exists.');
+  }
 
   await createAccount({ username: enrollmentNo, password: b.password, role: 'student', profile: p });
   res.status(201).json({ ok: true, message: 'Student account created successfully!' });
@@ -183,14 +188,16 @@ router.post('/signup/admin/send-otp', signupLimit, async (req, res) => {
   if (!email.endsWith('@scet.ac.in')) throw httpErr(400, 'Only official @scet.ac.in email addresses are permitted for faculty accounts.');
   if (mobile && !/^\d{10}$/.test(mobile)) throw httpErr(400, 'Mobile must be exactly 10 digits.');
 
-  // Uniqueness: check email across all accounts
+  // Uniqueness: check email within faculty/admin accounts only (student accounts with same email permitted)
   const emailSnap = await db.collection('users')
+    .where('role', '==', 'admin')
     .where('email', '==', email)
     .limit(1).get();
-  if (!emailSnap.empty) throw httpErr(409, 'An account with this email address already exists. Please sign in instead.');
+  if (!emailSnap.empty) throw httpErr(409, 'A faculty / admin account with this email address already exists. Please sign in instead.');
 
-  // Uniqueness: check username across all accounts
+  // Uniqueness: check username within admin accounts only
   const userSnap = await db.collection('users')
+    .where('role', '==', 'admin')
     .where('username', '==', username)
     .limit(1).get();
   if (!userSnap.empty) throw httpErr(409, 'An account with this Faculty / Admin ID already exists. Please choose another ID or sign in.');
@@ -201,12 +208,12 @@ router.post('/signup/admin/send-otp', signupLimit, async (req, res) => {
       .where('role', '==', 'admin')
       .where('mobile', '==', mobile)
       .limit(1).get();
-    if (!mobileSnap.empty) throw httpErr(409, 'An account with this mobile number already exists.');
+    if (!mobileSnap.empty) throw httpErr(409, 'A faculty account with this mobile number already exists.');
   }
 
-  // Generate 6-digit OTP
+  // Generate 6-digit OTP scoped specifically to admin signup
   const otp = newOtp();
-  const otpDocId = `signup__${email.replace(/[^a-z0-9]/g, '_')}`;
+  const otpDocId = `signup_admin__${email.replace(/[^a-z0-9]/g, '_')}`;
   await db.doc(`otps/${otpDocId}`).set({
     hash: hmac(otp, cfg.sessionSecret),
     exp: Date.now() + 10 * 60e3,
@@ -263,7 +270,7 @@ router.post('/signup/admin', signupLimit, async (req, res) => {
     if (mobile && !/^\d{10}$/.test(mobile)) throw httpErr(400, 'Mobile must be exactly 10 digits.');
 
     // Validate OTP
-    const otpDocId = `signup__${email.replace(/[^a-z0-9]/g, '_')}`;
+    const otpDocId = `signup_admin__${email.replace(/[^a-z0-9]/g, '_')}`;
     const otpRef = db.doc(`otps/${otpDocId}`);
     const otpSnap = await otpRef.get();
     if (!otpSnap.exists) throw httpErr(400, 'Verification code not found or expired. Please click "Send Verification Code".');
@@ -282,11 +289,17 @@ router.post('/signup/admin', signupLimit, async (req, res) => {
     }
     await otpRef.delete().catch(() => {});
 
-    // Check duplicate email & username
-    const emailSnap = await db.collection('users').where('email', '==', email).limit(1).get();
-    if (!emailSnap.empty) throw httpErr(409, 'An account with this email address already exists. Please sign in instead.');
+    // Check duplicate email & username within admin role
+    const emailSnap = await db.collection('users')
+      .where('role', '==', 'admin')
+      .where('email', '==', email)
+      .limit(1).get();
+    if (!emailSnap.empty) throw httpErr(409, 'A faculty / admin account with this email address already exists. Please sign in instead.');
 
-    const userSnap = await db.collection('users').where('username', '==', username).limit(1).get();
+    const userSnap = await db.collection('users')
+      .where('role', '==', 'admin')
+      .where('username', '==', username)
+      .limit(1).get();
     if (!userSnap.empty) throw httpErr(409, 'An account with this Faculty / Admin ID already exists. Please sign in or choose another ID.');
 
     const profile = { displayName: fullName, branch, mobile, email };
@@ -371,6 +384,13 @@ router.post('/forgot-password', forgotLimit, async (req, res) => {
         .where('role', '==', role)
         .limit(1)
         .get();
+      if (snap.empty) {
+        snap = await db.collection('users')
+          .where('username', '==', username)
+          .where('role', '==', role)
+          .limit(1)
+          .get();
+      }
     }
 
     // Specific error if username/email doesn't exist (per user request)
@@ -382,7 +402,12 @@ router.post('/forgot-password', forgotLimit, async (req, res) => {
     const realEmail = data.email;
     if (realEmail && EMAIL_RE.test(realEmail)) {
       // Firebase generates a link valid for 1 hour
-      const resetLink = await auth.generatePasswordResetLink(toEmail(data.username));
+      let resetLink;
+      try {
+        resetLink = await auth.generatePasswordResetLink(toEmail(data.username, role));
+      } catch {
+        resetLink = await auth.generatePasswordResetLink(legacyEmail(data.username));
+      }
       await sendMail({
         to: realEmail,
         ...templates.passwordReset(data.displayName || data.username, resetLink),
@@ -417,13 +442,41 @@ router.post('/login', loginLimit, async (req, res) => {
       .limit(1).get();
     if (snap.empty) return fail();
     loginUsername = snap.docs[0].data().username;
+  } else {
+    const targetUsername = portal === 'student' ? username.toUpperCase() : username;
+    let snap = await db.collection('users')
+      .where('role', '==', portal)
+      .where('username', '==', targetUsername)
+      .limit(1).get();
+    if (snap.empty) {
+      snap = await db.collection('users')
+        .where('role', '==', portal)
+        .where('username', '==', username)
+        .limit(1).get();
+    }
+    if (!snap.empty) {
+      loginUsername = snap.docs[0].data().username;
+    }
   }
 
-  const r = await fetch(`https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=${cfg.firebaseWebApiKey}`, {
+  // 1. Try role-scoped synthetic email
+  let r = await fetch(`https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=${cfg.firebaseWebApiKey}`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ email: toEmail(loginUsername), password, returnSecureToken: true }),
+    body: JSON.stringify({ email: toEmail(loginUsername, portal), password, returnSecureToken: true }),
   });
-  const data = await r.json();
+  let data = await r.json();
+
+  // 2. Fallback to legacy synthetic email if needed (e.g. older student accounts)
+  if (!r.ok) {
+    const legacyR = await fetch(`https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=${cfg.firebaseWebApiKey}`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: legacyEmail(loginUsername), password, returnSecureToken: true }),
+    });
+    if (legacyR.ok) {
+      r = legacyR;
+      data = await legacyR.json();
+    }
+  }
   if (!r.ok) return fail();
 
   const decoded = await auth.verifyIdToken(data.idToken);

@@ -96,6 +96,23 @@ export async function registerServiceWorker() {
 }
 
 /**
+ * Check if push notifications are currently active and allowed
+ */
+export async function isPushSubscribed() {
+  if (!isPushSupported()) return false;
+  if (Notification.permission !== 'granted') return false;
+  if (localStorage.getItem('scet_push_enabled') === 'false') return false;
+  try {
+    const reg = await registerServiceWorker();
+    if (!reg) return false;
+    const sub = await reg.pushManager.getSubscription();
+    return !!sub;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Subscribe user's browser/phone to push notifications
  */
 export async function enablePushNotifications() {
@@ -145,8 +162,44 @@ export async function enablePushNotifications() {
     },
   });
 
+  localStorage.setItem('scet_push_enabled', 'true');
+  try {
+    await api('/api/me/notification-toggle', { method: 'POST', body: { enabled: true } });
+  } catch { /* ignore */ }
+
   playChime('success');
   return { ok: true, isMobile, subscription };
+}
+
+/**
+ * Deny / disable notifications on phone
+ */
+export async function disablePushNotifications() {
+  try {
+    if ('serviceWorker' in navigator) {
+      const reg = await navigator.serviceWorker.ready;
+      const sub = await reg.pushManager.getSubscription();
+      if (sub) {
+        const endpoint = sub.endpoint;
+        await sub.unsubscribe().catch(() => {});
+        try {
+          await api('/api/me/push-unsubscribe', {
+            method: 'POST',
+            body: { endpoint }
+          });
+        } catch { /* ignore */ }
+      }
+    }
+  } catch (err) {
+    console.warn('[Disable notifications error]:', err);
+  }
+
+  localStorage.setItem('scet_push_enabled', 'false');
+  try {
+    await api('/api/me/notification-toggle', { method: 'POST', body: { enabled: false } });
+  } catch { /* ignore */ }
+
+  return { ok: true };
 }
 
 /**

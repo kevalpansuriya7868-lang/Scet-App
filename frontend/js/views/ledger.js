@@ -1,5 +1,6 @@
 import { api, openFile } from '../api.js';
 import { h, fields, modal, toast, badge, fmt, rupees, countdown } from '../ui.js';
+import { requestAuditTab } from './requestAudit.js';
 
 function mailToast(msg, r) {
   if (r.emailed) toast(`${msg} Proof PDF emailed to the student.`);
@@ -727,7 +728,7 @@ export async function ledgerTab(code) {
   }
 
   /* ─── Student Component Requests Workflow ─────────────────────────────── */
-  let activeTab = 'ledger'; // 'ledger' | 'requests'
+  let activeTab = 'ledger'; // 'ledger' | 'requests' | 'request-audit'
   let requestsList = [];
   let requestFilter = 'ALL'; // 'ALL' | 'PENDING' | 'ACCEPTED' | 'ISSUED' | 'REJECTED'
 
@@ -739,15 +740,20 @@ export async function ledgerTab(code) {
   );
 
   const requestsContainer = h('div', { style: 'display:none' });
+  const requestAuditContainer = h('div', { style: 'display:none' });
 
   function acceptModal(r) {
     const timeInput = h('input', {
       placeholder: 'e.g. Today 9:00 AM - 11:00 AM, Tomorrow 2:00 PM - 4:00 PM',
       value: r.collectionTime || ''
     });
+    const locationInput = h('input', {
+      placeholder: 'e.g. Hardware Lab Counter - Room 302 / Desk 1',
+      value: r.collectionLocation || `Hardware Lab Counter (${code} Dept)`
+    });
     const noteInput = h('input', {
-      placeholder: 'e.g. Hardware Lab 204, Counter 1 (Bring Student ID)',
-      value: r.collectionNote || 'Lab Counter 1, Hardware Lab'
+      placeholder: 'e.g. Bring Student College ID Card and project notebook',
+      value: r.collectionNote || ''
     });
 
     const standardSlots = [
@@ -805,7 +811,6 @@ export async function ledgerTab(code) {
       tomorrowChips
     );
 
-
     const items = Array.isArray(r.items) && r.items.length > 0 ? r.items : [{ compId: r.compId, compName: r.compName, qty: r.qty || 1 }];
     const itemsSummary = items.map((it) => `${it.qty} × ${it.compName || it.compId} (${it.compId})`).join(', ');
 
@@ -827,7 +832,11 @@ export async function ledgerTab(code) {
         presetChips
       ),
       h('div', { class: 'field' },
-        h('span', {}, 'Collection Location / Instructions:'),
+        h('span', {}, 'Pickup Location Given to Student (Required):'),
+        locationInput
+      ),
+      h('div', { class: 'field' },
+        h('span', {}, 'Additional Instructions / Notes (Optional):'),
         noteInput
       ),
       h('div', {
@@ -838,7 +847,7 @@ export async function ledgerTab(code) {
           h('div', { style: 'font-weight:800;color:var(--green);margin-bottom:2px' }, 'Automated Mobile & WhatsApp Notification:'),
           `When you click Confirm, the system automatically dispatches a push notification to the student's mobile phone`,
           r.studentMobile ? ` and an automated WhatsApp alert to +91 ${r.studentMobile}` : '',
-          `. No draft windows or manual messaging required.`
+          `. Pickup time and location will be sent directly to the student.`
         )
       )
     );
@@ -850,11 +859,12 @@ export async function ledgerTab(code) {
         run: async (close) => {
           const collectionTime = timeInput.value.trim();
           if (!collectionTime) { toast('Please specify a collection time slot.', 'err'); return; }
+          const collectionLocation = locationInput.value.trim() || 'Hardware Lab Counter';
           const collectionNote = noteInput.value.trim();
 
           const res = await api(`/api/branches/${code}/requests/${r.id}/accept`, {
             method: 'POST',
-            body: { collectionTime, collectionNote }
+            body: { collectionTime, collectionLocation, collectionNote }
           });
           const pushCount = res.push?.sent || 0;
           toast(`✓ Request accepted! Mobile push alert and automated WhatsApp notification dispatched to ${r.studentMobile || r.studentName}.`, 'ok');
@@ -1074,7 +1084,8 @@ export async function ledgerTab(code) {
         },
           badge('✅ ACCEPTED', 'ok'),
           h('div', { style: 'font-weight:700;font-size:0.88em;color:var(--ink)' }, `🕒 ${r.collectionTime}`),
-          r.collectionNote && h('div', { class: 'muted small', style: 'font-size:0.75em' }, `📍 ${r.collectionNote}`),
+          h('div', { class: 'muted small', style: 'font-size:0.75em' }, `📍 ${r.collectionLocation || r.collectionNote || 'Hardware Lab Counter'}`),
+          r.acceptedBy && h('div', { class: 'muted small', style: 'font-size:0.72em;color:var(--ink)' }, `By: ${r.acceptedBy}`),
           h('span', { style: 'font-size:0.72em;color:var(--green);font-weight:600' }, '📲 Phone alert sent')
         );
       } else if (r.status === 'ISSUED') {
@@ -1086,6 +1097,7 @@ export async function ledgerTab(code) {
       } else if (r.status === 'REJECTED') {
         statusCell = h('div', { style: 'display:flex;flex-direction:column;gap:3px;align-items:flex-start' },
           badge('❌ REJECTED', 'bad'),
+          r.rejectedBy && h('div', { class: 'muted small', style: 'font-size:0.72em;font-weight:600' }, `By: ${r.rejectedBy}`),
           r.rejectionReason && h('span', { class: 'muted small', style: 'font-size:0.75em' }, r.rejectionReason)
         );
       }
@@ -1222,6 +1234,12 @@ export async function ledgerTab(code) {
     onclick: () => switchView('requests')
   }, 'Request', pendingBadge);
 
+  const requestAuditBtn = h('button', {
+    class: 'btn ghost',
+    style: 'font-weight:700;display:inline-flex;align-items:center;gap:5px',
+    onclick: () => switchView('request-audit')
+  }, '📜 Request Audit Trail');
+
   const overdueBtn = h('button', {
     class: 'btn ghost',
     onclick: () => { overdueOnly = !overdueOnly; overdueBtn.className = `btn ${overdueOnly ? 'gold' : 'ghost'}`; load(); }
@@ -1232,26 +1250,51 @@ export async function ledgerTab(code) {
     onclick: () => issueForm(null)
   }, '+ Issue components');
 
+  let auditDispose = null;
+  async function loadRequestAudit() {
+    auditDispose?.();
+    const out = await requestAuditTab(code);
+    auditDispose = out.dispose;
+    requestAuditContainer.replaceChildren(out.el);
+  }
+
   function switchView(tab) {
     activeTab = tab;
     if (tab === 'ledger') {
       ledgerBtn.className = 'btn gold';
       requestBtn.className = 'btn ghost';
+      requestAuditBtn.className = 'btn ghost';
       overdueBtn.style.display = '';
       issueBtn.style.display = '';
       ledgerTblWrap.style.display = '';
       requestsContainer.style.display = 'none';
+      requestAuditContainer.style.display = 'none';
+      q.style.display = '';
       q.placeholder = 'Search enrollment no. or student name…';
       load();
-    } else {
+    } else if (tab === 'requests') {
       ledgerBtn.className = 'btn ghost';
       requestBtn.className = 'btn gold';
+      requestAuditBtn.className = 'btn ghost';
       overdueBtn.style.display = 'none';
       issueBtn.style.display = 'none';
       ledgerTblWrap.style.display = 'none';
       requestsContainer.style.display = '';
+      requestAuditContainer.style.display = 'none';
+      q.style.display = '';
       q.placeholder = 'Search requests by student, enrollment, or component…';
       loadRequests();
+    } else if (tab === 'request-audit') {
+      ledgerBtn.className = 'btn ghost';
+      requestBtn.className = 'btn ghost';
+      requestAuditBtn.className = 'btn gold';
+      overdueBtn.style.display = 'none';
+      issueBtn.style.display = 'none';
+      ledgerTblWrap.style.display = 'none';
+      requestsContainer.style.display = 'none';
+      requestAuditContainer.style.display = '';
+      q.style.display = 'none';
+      loadRequestAudit();
     }
   }
 
@@ -1260,7 +1303,7 @@ export async function ledgerTab(code) {
     clearTimeout(t);
     t = setTimeout(() => {
       if (activeTab === 'ledger') load();
-      else renderRequests();
+      else if (activeTab === 'requests') renderRequests();
     }, 250);
   };
 
@@ -1275,17 +1318,22 @@ export async function ledgerTab(code) {
   await Promise.all([load(), loadRequests()]);
   const timer = setInterval(() => ticks.forEach((f) => f()), 1000);
   return {
-    dispose: () => clearInterval(timer),
+    dispose: () => {
+      clearInterval(timer);
+      auditDispose?.();
+    },
     el: h('div', {},
       h('div', { class: 'row', style: 'margin-bottom:12px;gap:8px;flex-wrap:wrap' },
         h('div', { class: 'grow', style: 'min-width:240px' }, q),
         ledgerBtn,
         requestBtn,
+        requestAuditBtn,
         overdueBtn,
         issueBtn
       ),
       ledgerTblWrap,
-      requestsContainer
+      requestsContainer,
+      requestAuditContainer
     )
   };
 }

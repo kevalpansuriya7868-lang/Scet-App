@@ -26,16 +26,17 @@ test('formatIntlPhone normalizes Indian 10-digit mobile numbers', () => {
   assert.strictEqual(formatIntlPhone(''), null);
 });
 
-test('buildMessage formats notification without token mentions', () => {
+test('buildMessage formats notification with pickup slot, location and no token mentions', () => {
   const msg = buildMessage({
     studentName: 'Rahul',
     reqId: 'REQ-123456',
     time: 'Tomorrow 11:00 AM',
-    note: 'Lab Counter 1',
+    note: 'Hardware Lab Counter - Room 302',
     itemsSummary: '2x Arduino Uno',
   });
   assert.ok(msg.includes('SCET Lab Notification'));
   assert.ok(msg.includes('Tomorrow 11:00 AM'));
+  assert.ok(msg.includes('Hardware Lab Counter - Room 302'));
   assert.ok(msg.includes('College ID'));
   assert.ok(!msg.toLowerCase().includes('token'));
 });

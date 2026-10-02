@@ -63,11 +63,13 @@ router.post('/:id/accept', audited('STUDENT_REQUEST_ACCEPTED'), async (req, res)
 
   const collectionTime = clean(req.body.collectionTime);
   if (!collectionTime) throw httpErr(400, 'Collection time is required.');
+  const collectionLocation = clean(req.body.collectionLocation) || clean(req.body.location) || 'Hardware Lab Counter';
   const collectionNote = clean(req.body.collectionNote) || '';
 
   await ref.update({
     status: 'ACCEPTED',
     collectionTime,
+    collectionLocation,
     collectionNote,
     acceptedBy: req.user.username,
     acceptedAt: Timestamp.now(),
@@ -78,6 +80,7 @@ router.post('/:id/accept', audited('STUDENT_REQUEST_ACCEPTED'), async (req, res)
     pushResult = await notifyStudentRequestAccepted({
       request: { id, ...data },
       collectionTime,
+      collectionLocation,
       collectionNote,
       acceptedBy: req.user.username,
     });
@@ -88,14 +91,14 @@ router.post('/:id/accept', audited('STUDENT_REQUEST_ACCEPTED'), async (req, res)
   const studentEmail = data.studentEmail;
   if (studentEmail && templates.requestAccepted) {
     try {
-      await sendMail({ to: studentEmail, ...templates.requestAccepted(data, collectionTime, collectionNote) });
+      await sendMail({ to: studentEmail, ...templates.requestAccepted(data, collectionTime, `${collectionLocation}${collectionNote ? ' · ' + collectionNote : ''}`) });
     } catch (mailErr) {
       console.error('[Accept Request] Mail delivery failed:', mailErr.message);
     }
   }
 
-  res.locals.auditDetail = `Accepted request #${id} for ${data.enrollmentNo}; collection time: ${collectionTime} (${pushResult.sent || 0} phone push sent)`;
-  res.json({ ok: true, collectionTime, collectionNote, push: pushResult });
+  res.locals.auditDetail = `Accepted request #${id} for ${data.enrollmentNo}; collection time: ${collectionTime}; location: ${collectionLocation} (${pushResult.sent || 0} phone push sent)`;
+  res.json({ ok: true, collectionTime, collectionLocation, collectionNote, push: pushResult });
 });
 
 // POST /api/branches/:code/requests/:id/issue (Step 3: ⚡ ONE-CLICK ISSUE)

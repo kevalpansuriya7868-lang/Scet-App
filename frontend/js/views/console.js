@@ -4,12 +4,16 @@ import { h } from '../ui.js';
 import { shell } from './shell.js';
 import { inventoryTab } from './inventory.js';
 import { ledgerTab } from './ledger.js';
+import { requestAuditTab } from './requestAudit.js';
 import { reportsTab } from './tools.js';
 import { auditTab } from './audit.js';
 
 const TABS = [
-  ['inventory', 'Inventory', inventoryTab], ['ledger', 'Issue & Return Ledger', ledgerTab],
-  ['reports', 'Reports', reportsTab], ['audit', 'Audit Trail', auditTab],
+  ['inventory', 'Inventory', inventoryTab],
+  ['ledger', 'Issue & Return Ledger', ledgerTab],
+  ['request-audit', '📜 Request Audit Trail', requestAuditTab],
+  ['reports', 'Reports', reportsTab],
+  ['audit', 'Audit Trail', auditTab],
 ];
 
 export function consoleView() {

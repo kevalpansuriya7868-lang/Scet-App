@@ -205,14 +205,15 @@ async function recordNotification({ enrollmentNo, uid, title, body, type, data }
 /**
  * Dispatches notification when a request is ACCEPTED
  */
-async function notifyStudentRequestAccepted({ request, collectionTime, collectionNote, acceptedBy }) {
+async function notifyStudentRequestAccepted({ request, collectionTime, collectionLocation, collectionNote, acceptedBy }) {
   const reqId = request.id || 'N/A';
   const shortId = reqId.slice(-6);
   const items = Array.isArray(request.items) && request.items.length > 0 ? request.items : [{ compId: request.compId, compName: request.compName, qty: request.qty || 1 }];
   const itemsSummary = items.map(it => `${it.qty}x ${it.compName || it.compId}`).join(', ');
+  const location = collectionLocation || collectionNote || 'Hardware Lab Counter';
 
   const title = '🎉 Request Approved — SCET Lab';
-  const body = `Pickup Slot: ${collectionTime} (${itemsSummary}). Please bring your College ID to the lab counter.`;
+  const body = `Pickup Slot: ${collectionTime} | Location: ${location} (${itemsSummary}). Please bring your College ID to the lab counter.`;
 
   const payload = {
     title,
@@ -225,6 +226,7 @@ async function notifyStudentRequestAccepted({ request, collectionTime, collectio
       requestId: reqId,
       branchCode: request.branchCode,
       collectionTime,
+      collectionLocation: location,
       collectionNote: collectionNote || '',
       url: '/#tab=requests',
     },
@@ -246,16 +248,16 @@ async function notifyStudentRequestAccepted({ request, collectionTime, collectio
       studentName: request.studentName,
       reqId,
       time: collectionTime,
-      note: collectionNote,
+      note: location,
       itemsSummary,
     }),
     recordNotification({
       enrollmentNo: request.enrollmentNo,
       uid: request.studentUid,
       title,
-      body: `Your hardware request #${shortId} was approved! Collection time: ${collectionTime}. ${collectionNote ? `Note: ${collectionNote}` : ''}`,
+      body: `Your hardware request #${shortId} was approved! Collection time: ${collectionTime}. Location: ${location}. ${collectionNote ? `Note: ${collectionNote}` : ''}`,
       type: 'REQUEST_ACCEPTED',
-      data: { requestId: reqId, collectionTime, collectionNote, itemsSummary, acceptedBy },
+      data: { requestId: reqId, collectionTime, collectionLocation: location, collectionNote, itemsSummary, acceptedBy },
     })
   ]);
 

@@ -112,9 +112,11 @@ router.get('/push-status', async (req, res) => {
   const uSnap = await db.doc(`users/${req.user.uid}`).get();
   const u = uSnap.exists ? uSnap.data() : {};
   const mobile = u.mobile || '';
+  const notificationsEnabled = u.notificationsEnabled !== false;
   const subs = await getSubscriptionsForStudent(en, req.user.uid, mobile);
   res.json({
-    subscribed: subs.length > 0,
+    subscribed: subs.length > 0 && notificationsEnabled,
+    notificationsEnabled,
     mobile: mobile || '',
     devicesCount: subs.length,
     devices: subs.map(s => ({
@@ -137,6 +139,11 @@ router.post('/push-subscribe', async (req, res) => {
   const u = uSnap.exists ? uSnap.data() : {};
   const mobile = u.mobile || '';
 
+  await db.doc(`users/${req.user.uid}`).set({
+    notificationsEnabled: true,
+    notificationsUpdatedAt: FieldValue.serverTimestamp(),
+  }, { merge: true });
+
   const result = await saveSubscription({
     uid: req.user.uid,
     enrollmentNo: en,
@@ -152,7 +159,21 @@ router.post('/push-subscribe', async (req, res) => {
 router.post('/push-unsubscribe', async (req, res) => {
   const { endpoint } = req.body || {};
   await removeSubscription(endpoint);
+  await db.doc(`users/${req.user.uid}`).set({
+    notificationsEnabled: false,
+    notificationsUpdatedAt: FieldValue.serverTimestamp(),
+  }, { merge: true });
   res.json({ ok: true });
+});
+
+// POST /api/me/notification-toggle - Toggle mobile notification preference
+router.post('/notification-toggle', async (req, res) => {
+  const enabled = Boolean(req.body.enabled);
+  await db.doc(`users/${req.user.uid}`).set({
+    notificationsEnabled: enabled,
+    notificationsUpdatedAt: FieldValue.serverTimestamp(),
+  }, { merge: true });
+  res.json({ ok: true, enabled });
 });
 
 // POST /api/me/push-test - Send immediate test alert to phone
