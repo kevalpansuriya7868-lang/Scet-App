@@ -1,7 +1,7 @@
 const router = require('express').Router();
 const cfg = require('../config');
 const { auth, db, FieldValue } = require('../firebase');
-const { safeEqual } = require('../utils/crypto');
+const { safeEqual, hmac, newOtp } = require('../utils/crypto');
 const { httpErr, clean } = require('../utils/http');
 const { COOKIE, BRANCH_COOKIE, cookieOpts, requireRole, activeBranch } = require('../middleware/auth');
 const { audited, writeAudit } = require('../middleware/audit');
@@ -33,22 +33,119 @@ async function createAccount({ username, password, role, profile }) {
   return { uid: rec.uid, username, role };
 }
 
-/* ---------- Student sign-up (username = enrollment number) ---------- */
-router.post('/signup/student', signupLimit, async (req, res) => {
+/* ---------- Student sign-up: Send Verification OTP ---------- */
+router.post('/signup/student/send-otp', signupLimit, async (req, res) => {
   const b = req.body || {};
+  const email = clean(b.email).toLowerCase();
   const enrollmentNo = clean(b.enrollmentNo).toUpperCase();
-  const p = { displayName: clean(b.fullName), enrollmentNo, branch: clean(b.branch), mobile: clean(b.mobile), email: clean(b.email) };
-  if (!enrollmentNo || !p.displayName || !p.branch) throw httpErr(400, 'Enrollment number, full name and branch are required.');
-  if (!/^\d{10}$/.test(p.mobile)) throw httpErr(400, 'Mobile must be exactly 10 digits.');
-  if (!EMAIL_RE.test(p.email)) throw httpErr(400, 'Enter a valid email address.');
-  if (!p.email.toLowerCase().endsWith('@scet.ac.in')) throw httpErr(400, 'Only @scet.ac.in email addresses are permitted for student accounts.');
+  const mobile = clean(b.mobile);
+  const fullName = clean(b.fullName);
+
+  if (!enrollmentNo) throw httpErr(400, 'Enrollment number is required.');
+  if (!fullName) throw httpErr(400, 'Full name is required.');
+  if (!email) throw httpErr(400, 'Email address is required.');
+  if (!EMAIL_RE.test(email)) throw httpErr(400, 'Please enter a valid email address.');
+  if (!email.endsWith('@scet.ac.in')) throw httpErr(400, 'Only official @scet.ac.in email addresses are permitted for student accounts.');
+  if (mobile && !/^\d{10}$/.test(mobile)) throw httpErr(400, 'Mobile must be exactly 10 digits.');
 
   // Uniqueness: one account per email address
   const emailSnap = await db.collection('users')
     .where('role', '==', 'student')
-    .where('email', '==', p.email.toLowerCase())
+    .where('email', '==', email)
+    .limit(1).get();
+  if (!emailSnap.empty) throw httpErr(409, 'An account with this email address already exists. Please sign in instead.');
+
+  // Uniqueness: one account per enrollment number
+  const enSnap = await db.collection('users')
+    .where('role', '==', 'student')
+    .where('enrollmentNo', '==', enrollmentNo)
+    .limit(1).get();
+  if (!enSnap.empty) throw httpErr(409, 'An account with this enrollment number already exists. Please sign in instead.');
+
+  // Uniqueness: one account per mobile number
+  if (mobile) {
+    const mobileSnap = await db.collection('users')
+      .where('role', '==', 'student')
+      .where('mobile', '==', mobile)
+      .limit(1).get();
+    if (!mobileSnap.empty) throw httpErr(409, 'An account with this mobile number already exists.');
+  }
+
+  // Generate 6-digit OTP
+  const otp = newOtp();
+  const otpDocId = `signup__${email.replace(/[^a-z0-9]/g, '_')}`;
+  await db.doc(`otps/${otpDocId}`).set({
+    hash: hmac(otp, cfg.sessionSecret),
+    exp: Date.now() + 10 * 60e3,
+    attempts: 0,
+    email,
+  });
+
+  // Send verification email
+  const r = await sendMail({
+    to: email,
+    subject: 'SCET Lab Portal - Account Verification Code',
+    text: `Dear ${fullName},\n\nGreetings from Sarvajanik College of Engineering & Technology (SCET)!\n\nYour 6-digit verification code to create your SCET Lab Portal student account is:\n\n    ${otp}\n\nThis verification code is valid for 10 minutes. Do not share this code with anyone.\n\nBest Regards,\nSCET Lab Administration\nSarvajanik College of Engineering & Technology (SCET), Surat`,
+  });
+
+  if (!r.ok) {
+    console.error('[Send OTP] Email delivery failed:', r.error);
+    throw httpErr(400, `Email delivery failed: ${r.error || 'Unable to send to this address'}. Please verify that your @scet.ac.in email is active and typed correctly.`);
+  }
+
+  const resPayload = { ok: true, message: `Verification code sent to ${email}` };
+  if (!cfg.isProd && r.devFallback) {
+    resPayload.devOtp = r.otp || otp;
+  }
+  res.json(resPayload);
+});
+
+/* ---------- Student sign-up: Complete Registration with OTP ---------- */
+router.post('/signup/student', signupLimit, async (req, res) => {
+  const b = req.body || {};
+  const enrollmentNo = clean(b.enrollmentNo).toUpperCase();
+  const p = { displayName: clean(b.fullName), enrollmentNo, branch: clean(b.branch), mobile: clean(b.mobile), email: clean(b.email).toLowerCase() };
+  if (!enrollmentNo || !p.displayName || !p.branch) throw httpErr(400, 'Enrollment number, full name and branch are required.');
+  if (!/^\d{10}$/.test(p.mobile)) throw httpErr(400, 'Mobile must be exactly 10 digits.');
+  if (!EMAIL_RE.test(p.email)) throw httpErr(400, 'Enter a valid email address.');
+  if (!p.email.endsWith('@scet.ac.in')) throw httpErr(400, 'Only @scet.ac.in email addresses are permitted for student accounts.');
+
+  // Validate OTP
+  const otp = clean(b.otp);
+  if (!otp) throw httpErr(400, 'Verification code (OTP) is required. Please verify your email first.');
+  const otpDocId = `signup__${p.email.replace(/[^a-z0-9]/g, '_')}`;
+  const otpRef = db.doc(`otps/${otpDocId}`);
+  const otpSnap = await otpRef.get();
+  if (!otpSnap.exists) throw httpErr(400, 'Verification code not found or expired. Please click "Send Verification Code".');
+  const otpData = otpSnap.data();
+  if (otpData.exp < Date.now()) {
+    await otpRef.delete().catch(() => {});
+    throw httpErr(400, 'Verification code has expired. Please request a new code.');
+  }
+  if (otpData.attempts >= 5) {
+    await otpRef.delete().catch(() => {});
+    throw httpErr(429, 'Too many wrong verification code attempts. Please request a new code.');
+  }
+  if (hmac(otp, cfg.sessionSecret) !== otpData.hash) {
+    await otpRef.update({ attempts: FieldValue.increment(1) });
+    throw httpErr(400, 'Invalid verification code. Please check your email and try again.');
+  }
+  // OTP is verified - consume it
+  await otpRef.delete().catch(() => {});
+
+  // Uniqueness: one account per email address
+  const emailSnap = await db.collection('users')
+    .where('role', '==', 'student')
+    .where('email', '==', p.email)
     .limit(1).get();
   if (!emailSnap.empty) throw httpErr(409, 'An account with this email address already exists.');
+
+  // Uniqueness: one account per enrollment number
+  const enSnap = await db.collection('users')
+    .where('role', '==', 'student')
+    .where('enrollmentNo', '==', enrollmentNo)
+    .limit(1).get();
+  if (!enSnap.empty) throw httpErr(409, 'An account with this enrollment number already exists.');
 
   // Uniqueness: one account per mobile number
   const mobileSnap = await db.collection('users')
@@ -56,9 +153,6 @@ router.post('/signup/student', signupLimit, async (req, res) => {
     .where('mobile', '==', p.mobile)
     .limit(1).get();
   if (!mobileSnap.empty) throw httpErr(409, 'An account with this mobile number already exists.');
-
-  // Normalise email to lowercase before storing
-  p.email = p.email.toLowerCase();
 
   await createAccount({ username: enrollmentNo, password: b.password, role: 'student', profile: p });
   res.status(201).json({ ok: true });

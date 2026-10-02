@@ -1,5 +1,5 @@
 import { api, openFile } from '../api.js';
-import { h, modal, fmt, rupees, badge, table, toast } from '../ui.js';
+import { h, modal, fmt, rupees, badge, table, toast, field } from '../ui.js';
 import { shell } from './shell.js';
 import {
   getNotificationPermission,
@@ -41,7 +41,12 @@ export async function studentView() {
 
   const draw = async () => {
     if (activeViewCleanup) { activeViewCleanup(); activeViewCleanup = null; }
-    tabs.replaceChildren(...[['catalog', 'Lab catalogue'], ['requests', 'My Requests'], ['mine', 'My issues & fines']].map(([k, t]) =>
+    tabs.replaceChildren(...[
+      ['catalog', 'Lab catalogue'],
+      ['requests', 'My Requests'],
+      ['mine', 'My issues & fines'],
+      ['profile', '👤 My Profile']
+    ].map(([k, t]) =>
       h('button', { class: `tab${tab === k ? ' on' : ''}`, onclick: () => { tab = k; draw(); } }, t)));
 
     if (tab === 'catalog') {
@@ -50,8 +55,10 @@ export async function studentView() {
       const res = await myRequests(onSwitchToRequests);
       if (res?.cleanup) activeViewCleanup = res.cleanup;
       body.replaceChildren(res?.el || res);
-    } else {
+    } else if (tab === 'mine') {
       body.replaceChildren(await myIssues());
+    } else if (tab === 'profile') {
+      body.replaceChildren(await myProfile());
     }
   };
 
@@ -772,4 +779,100 @@ async function myIssues() {
       h('td', {}, rupees(r.fine)),
       h('td', {}, h('button', { class: 'btn ghost sm', onclick: () => openFile(`/api/me/issues/${r.branchCode}/${r.seq}/gatepass`) }, 'Gate pass')));
   }));
+}
+
+async function myProfile() {
+  const container = h('div', { class: 'stack', style: 'max-width:640px; margin:16px auto; padding:0 12px;' });
+
+  let p = { displayName: '', enrollmentNo: '', email: '', mobile: '', branch: '' };
+  try {
+    p = await api('/api/me/profile');
+  } catch (e) {
+    toast(e.message, 'err');
+  }
+
+  const nameInput = h('input', { type: 'text', value: p.displayName || '', placeholder: 'Full Name' });
+  const mobileInput = h('input', { type: 'tel', value: p.mobile || '', placeholder: '10-digit mobile number', maxlength: '10' });
+  const branchInput = h('input', { type: 'text', value: p.branch || '', placeholder: 'e.g. CO, IT, EC' });
+
+  // Read-only locked fields
+  const enInput = h('input', {
+    type: 'text',
+    value: p.enrollmentNo || '',
+    disabled: true,
+    style: 'background:rgba(0,0,0,0.05); cursor:not-allowed; font-weight:600; color:var(--ink); opacity:0.85;'
+  });
+
+  const emailInput = h('input', {
+    type: 'email',
+    value: p.email || '',
+    disabled: true,
+    style: 'background:rgba(0,0,0,0.05); cursor:not-allowed; font-weight:600; color:var(--ink); opacity:0.85;'
+  });
+
+  const saveBtn = h('button', { class: 'btn primary block', type: 'submit' }, '💾 Save Profile Changes');
+
+  const card = h('div', { class: 'card stack', style: 'padding:24px; gap:18px;' },
+    h('div', { class: 'row', style: 'align-items:center; gap:16px; border-bottom:1.5px solid var(--line); padding-bottom:16px;' },
+      h('div', {
+        style: 'width:56px; height:56px; border-radius:50%; background:linear-gradient(135deg, var(--blue), var(--ink)); color:#fff; display:flex; align-items:center; justify-content:center; font-size:24px; font-weight:bold; flex-shrink:0; box-shadow:var(--shadow-glow);'
+      }, (p.displayName || p.enrollmentNo || 'S')[0].toUpperCase()),
+      h('div', { class: 'grow' },
+        h('h2', { style: 'margin:0 0 4px 0; font-size:1.25rem;' }, p.displayName || 'Student Profile'),
+        h('div', { class: 'row', style: 'gap:8px; align-items:center;' },
+          h('span', { class: 'chip' }, p.enrollmentNo || 'Student'),
+          h('span', { class: 'badge b-ok' }, p.branch ? `Dept: ${p.branch}` : 'Registered')
+        )
+      )
+    ),
+
+    h('div', {
+      style: 'background:rgba(15,118,110,0.08); border:1px solid rgba(15,118,110,0.25); border-radius:8px; padding:12px 14px; font-size:13px; color:var(--teal-d); line-height:1.45;'
+    }, '🔒 Official Record Policy: Your Enrollment Number and institutional @scet.ac.in Email are permanently locked to preserve laboratory tracking and gate pass audit integrity. Other details can be updated below anytime.'),
+
+    h('form', { class: 'stack', style: 'gap:14px;' },
+      field('Enrollment number (Login ID - Locked)', enInput),
+      field('College Email (@scet.ac.in - Locked)', emailInput),
+      field('Full Name (Editable)', nameInput),
+      field('Mobile number (10 digits - Editable)', mobileInput),
+      field('Department / Branch (Editable)', branchInput),
+      h('div', { style: 'margin-top:10px;' }, saveBtn)
+    )
+  );
+
+  card.querySelector('form').onsubmit = async (e) => {
+    e.preventDefault();
+    const displayName = nameInput.value.trim();
+    const mobile = mobileInput.value.trim();
+    const branch = branchInput.value.trim().toUpperCase();
+
+    if (!displayName) return toast('Full name cannot be empty.', 'err');
+    if (!branch) return toast('Branch cannot be empty.', 'err');
+    if (!/^\d{10}$/.test(mobile)) return toast('Mobile number must be exactly 10 digits.', 'err');
+
+    saveBtn.disabled = true;
+    saveBtn.innerText = 'Saving changes...';
+    try {
+      const res = await api('/api/me/profile', {
+        method: 'PUT',
+        body: { displayName, mobile, branch }
+      });
+      toast('Profile updated successfully!');
+      p.displayName = displayName;
+      p.mobile = mobile;
+      p.branch = branch;
+      const titleEl = card.querySelector('h2');
+      if (titleEl) titleEl.innerText = displayName;
+      const deptBadge = card.querySelector('.badge');
+      if (deptBadge) deptBadge.innerText = `Dept: ${branch}`;
+    } catch (err) {
+      toast(err.message, 'err');
+    } finally {
+      saveBtn.disabled = false;
+      saveBtn.innerText = '💾 Save Profile Changes';
+    }
+  };
+
+  container.append(card);
+  return container;
 }

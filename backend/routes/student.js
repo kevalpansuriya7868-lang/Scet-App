@@ -180,5 +180,75 @@ router.get('/notifications', async (req, res) => {
   res.json(list.slice(0, 30));
 });
 
+// GET /api/me/profile - Fetch student profile
+router.get('/profile', async (req, res) => {
+  if (!req.user) throw httpErr(401, 'Please log in.');
+  const userSnap = await db.doc(`users/${req.user.uid}`).get();
+  if (!userSnap.exists) throw httpErr(404, 'User not found.');
+  const u = userSnap.data();
+  res.json({
+    displayName: u.displayName || '',
+    enrollmentNo: u.enrollmentNo || req.user.username.toUpperCase(),
+    email: u.email || '',
+    mobile: u.mobile || '',
+    branch: u.branch || '',
+    createdAt: u.createdAt || null,
+  });
+});
+
+// PUT /api/me/profile - Update student profile (Full name, mobile, branch)
+router.put('/profile', async (req, res) => {
+  if (!req.user) throw httpErr(401, 'Please log in.');
+  const userRef = db.doc(`users/${req.user.uid}`);
+  const userSnap = await userRef.get();
+  if (!userSnap.exists) throw httpErr(404, 'User not found.');
+  const u = userSnap.data();
+
+  const displayName = clean(req.body.displayName);
+  const branch = clean(req.body.branch).toUpperCase();
+  const mobile = clean(req.body.mobile);
+
+  if (!displayName) throw httpErr(400, 'Full name cannot be empty.');
+  if (!branch) throw httpErr(400, 'Branch / department cannot be empty.');
+  if (!/^\d{10}$/.test(mobile)) throw httpErr(400, 'Mobile number must be exactly 10 digits.');
+
+  // Uniqueness check for mobile number if changed
+  if (mobile !== u.mobile) {
+    const mobileSnap = await db.collection('users')
+      .where('role', '==', 'student')
+      .where('mobile', '==', mobile)
+      .limit(1).get();
+    if (!mobileSnap.empty && mobileSnap.docs[0].id !== req.user.uid) {
+      throw httpErr(409, 'Another account is already registered with this mobile number.');
+    }
+  }
+
+  // NOTE: Enrollment number and Email are locked and cannot be modified
+  await userRef.update({
+    displayName,
+    branch,
+    mobile,
+    updatedAt: FieldValue.serverTimestamp(),
+  });
+
+  try {
+    const { auth } = require('../firebase');
+    await auth.updateUser(req.user.uid, { displayName });
+  } catch (authErr) {
+    console.warn('[Profile Update] Auth update warning:', authErr.message);
+  }
+
+  res.json({
+    ok: true,
+    profile: {
+      displayName,
+      enrollmentNo: u.enrollmentNo || req.user.username.toUpperCase(),
+      email: u.email || '',
+      mobile,
+      branch,
+    },
+  });
+});
+
 module.exports = router;
 

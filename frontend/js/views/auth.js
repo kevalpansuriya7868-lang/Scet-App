@@ -82,23 +82,131 @@ export function authView() {
 
     const signup = () => {
       if (portal === 'admin') return adminSignup();
-      // Student signup — enforce @scet.ac.in
-      const emailField = { name: 'email', label: 'Email (@scet.ac.in only)', type: 'email' };
-      const f = fields([
-        { name: 'fullName', label: 'Full name' },
-        { name: 'enrollmentNo', label: 'Enrollment number (your login ID)' },
-        { name: 'branch', label: 'Branch / dept (e.g. CO, IT, EC)' },
-        { name: 'mobile', label: 'Mobile (10 digits)' },
-        emailField,
-        { name: 'password', label: 'Password (min 8 chars)', type: 'password', ac: 'new-password' },
-      ]);
-      return submitForm(f, 'Create student account', async (v) => {
-        if (!v.email.toLowerCase().endsWith('@scet.ac.in')) {
-          throw new Error('Only @scet.ac.in email addresses are allowed.');
+      // Student signup — enforce @scet.ac.in and email OTP verification
+      const fullNameInput = h('input', { type: 'text', placeholder: 'Enter your full name' });
+      const enrollmentInput = h('input', { type: 'text', placeholder: 'e.g. ET25BTCO177 (Login ID)' });
+      const branchInput = h('input', { type: 'text', placeholder: 'e.g. CO, IT, EC' });
+      const mobileInput = h('input', { type: 'tel', placeholder: '10-digit mobile number', maxlength: '10' });
+      const emailInput = h('input', { type: 'email', placeholder: 'yourname@scet.ac.in', autocomplete: 'email' });
+      const passwordInput = h('input', { type: 'password', placeholder: 'Min 8 characters', autocomplete: 'new-password' });
+      const otpInput = h('input', { type: 'text', placeholder: 'Enter 6-digit code', maxlength: '6', autocomplete: 'one-time-code', style: 'font-size:18px;letter-spacing:4px;text-align:center;font-weight:700;' });
+
+      const otpRow = h('div', { class: 'stack', style: 'display:none; padding:14px; background:rgba(30,58,138,0.06); border-radius:10px; border:1.5px solid rgba(30,58,138,0.25); margin:6px 0;' },
+        h('label', { class: 'field' },
+          h('span', { style: 'font-weight:700; color:var(--blue);' }, '📧 Enter 6-digit Verification Code:'),
+          otpInput
+        ),
+        h('div', { class: 'row between', style: 'margin-top:6px; align-items:center;' },
+          h('span', { class: 'muted small' }, 'Code sent to your @scet.ac.in email.'),
+          h('button', {
+            class: 'btn ghost sm',
+            type: 'button',
+            onclick: async (e) => {
+              await sendOtpHandler(e.target);
+            }
+          }, '🔄 Resend Code')
+        )
+      );
+
+      const submitBtn = h('button', { class: 'btn primary block', type: 'submit' }, 'Send Verification Code');
+      let otpSent = false;
+
+      async function sendOtpHandler(btnEl) {
+        const email = emailInput.value.trim().toLowerCase();
+        const enrollmentNo = enrollmentInput.value.trim().toUpperCase();
+        const mobile = mobileInput.value.trim();
+        const fullName = fullNameInput.value.trim();
+
+        if (!fullName) throw new Error('Please enter your full name.');
+        if (!enrollmentNo) throw new Error('Please enter your enrollment number.');
+        if (!email) throw new Error('Please enter your @scet.ac.in email address.');
+        if (!email.endsWith('@scet.ac.in')) throw new Error('Only official @scet.ac.in email addresses are permitted for student accounts.');
+        if (mobile && !/^\d{10}$/.test(mobile)) throw new Error('Mobile number must be exactly 10 digits.');
+
+        const orig = btnEl.innerText;
+        btnEl.disabled = true;
+        btnEl.innerText = 'Sending OTP...';
+        try {
+          const res = await api('/api/auth/signup/student/send-otp', {
+            method: 'POST',
+            body: { email, enrollmentNo, mobile, fullName }
+          });
+          otpSent = true;
+          otpRow.style.display = 'block';
+          submitBtn.innerText = 'Verify Code & Create Account';
+          toast(res.message || `Verification code sent to ${email}!`);
+          otpInput.focus();
+        } finally {
+          btnEl.disabled = false;
+          btnEl.innerText = orig;
         }
-        await api('/api/auth/signup/student', { method: 'POST', body: v });
-        toast('Account created. You can sign in now.'); go('login');
-      });
+      }
+
+      const form = h('form', { class: 'stack' },
+        field('Full name', fullNameInput),
+        field('Enrollment number (your login ID)', enrollmentInput),
+        field('Branch / dept (e.g. CO, IT, EC)', branchInput),
+        field('Mobile (10 digits)', mobileInput),
+        field('Email (@scet.ac.in only)', emailInput),
+        field('Password (min 8 chars)', passwordInput),
+        otpRow,
+        submitBtn
+      );
+
+      form.onsubmit = async (e) => {
+        e.preventDefault();
+        const email = emailInput.value.trim().toLowerCase();
+        const enrollmentNo = enrollmentInput.value.trim().toUpperCase();
+        const fullName = fullNameInput.value.trim();
+        const branch = branchInput.value.trim().toUpperCase();
+        const mobile = mobileInput.value.trim();
+        const password = passwordInput.value;
+        const otp = otpInput.value.trim();
+
+        if (!fullName || !enrollmentNo || !branch) {
+          return toast('Please fill in all required fields.', 'err');
+        }
+        if (!email.endsWith('@scet.ac.in')) {
+          return toast('Only official @scet.ac.in email addresses are allowed.', 'err');
+        }
+        if (!/^\d{10}$/.test(mobile)) {
+          return toast('Mobile number must be exactly 10 digits.', 'err');
+        }
+        if (password.length < 8) {
+          return toast('Password must be at least 8 characters.', 'err');
+        }
+
+        if (!otpSent) {
+          try {
+            await sendOtpHandler(submitBtn);
+          } catch (err) {
+            toast(err.message, 'err');
+          }
+          return;
+        }
+
+        if (!otp || otp.length < 6) {
+          return toast('Please enter the 6-digit verification code sent to your email.', 'err');
+        }
+
+        submitBtn.disabled = true;
+        submitBtn.innerText = 'Creating account...';
+        try {
+          await api('/api/auth/signup/student', {
+            method: 'POST',
+            body: { fullName, enrollmentNo, branch, mobile, email, password, otp }
+          });
+          toast('Account created successfully! You can sign in now.');
+          go('login');
+        } catch (err) {
+          toast(err.message, 'err');
+        } finally {
+          submitBtn.disabled = false;
+          submitBtn.innerText = 'Verify Code & Create Account';
+        }
+      };
+
+      return form;
     };
 
     const forgotView = () => {
