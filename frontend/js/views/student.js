@@ -1,4 +1,5 @@
 import { api, openFile } from '../api.js';
+import { state, rerender } from '../state.js';
 import { h, modal, fmt, rupees, badge, table, toast, field } from '../ui.js';
 import { shell } from './shell.js';
 import {
@@ -131,11 +132,27 @@ export async function studentView() {
   const onSwitchToRequests = () => { tab = 'requests'; draw(); };
   await draw();
 
+  const exitBtn = h('button', {
+    type: 'button',
+    class: 'btn ghost sm',
+    style: 'font-weight:600;display:inline-flex;align-items:center;gap:6px;border-radius:8px;',
+    title: 'Return to portal chooser / Sign out',
+    onclick: async () => {
+      try { await api('/api/auth/logout', { method: 'POST' }); } catch {}
+      sessionStorage.removeItem('scet_auth_token');
+      sessionStorage.removeItem('scet_branch_token');
+      localStorage.removeItem('scet_auth_token');
+      localStorage.removeItem('scet_branch_token');
+      state.user = state.branch = null;
+      rerender();
+    }
+  }, '← Portals (Sign out)');
+
   const navRow = h('div', {
     style: 'display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;flex-wrap:wrap;gap:10px'
   },
     tabs,
-    notifToggle.el
+    h('div', { style: 'display:flex;align-items:center;gap:8px;flex-wrap:wrap;' }, notifToggle.el, exitBtn)
   );
 
   const shellEl = shell('Student portal', navRow, body);

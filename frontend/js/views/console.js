@@ -42,6 +42,7 @@ export function consoleView() {
 
   const back = h('button', { class: 'btn ghost sm', onclick: async () => {
     try { await api(`/api/branches/${code}/lock`, { method: 'POST' }); } catch {}
+    sessionStorage.removeItem('scet_branch_token');
     localStorage.removeItem('scet_branch_token');
     state.branch = null;
     rerender();

@@ -1,11 +1,11 @@
-import { api } from './api.js?v=20261003_01';
-import { state, bus } from './state.js?v=20261003_01';
-import { h } from './ui.js?v=20261003_01';
-import { authView } from './views/auth.js?v=20261003_01';
-import { studentView } from './views/student.js?v=20261003_01';
-import { branchView } from './views/branches.js?v=20261003_01';
-import { consoleView } from './views/console.js?v=20261003_01';
-import { registerServiceWorker } from './notifications.js?v=20261003_01';
+import { api } from './api.js';
+import { state, bus } from './state.js';
+import { h } from './ui.js';
+import { authView } from './views/auth.js';
+import { studentView } from './views/student.js';
+import { branchView } from './views/branches.js';
+import { consoleView } from './views/console.js';
+import { registerServiceWorker } from './notifications.js';
 
 const root = document.getElementById('app');
 let dispose = null;
@@ -31,19 +31,29 @@ document.addEventListener('ip-blocked', (e) => {
 });
 
 (async () => {
-  try {
-    const me = await api('/api/auth/me');
-    state.user = me?.user || null;
-    state.branch = me?.activeBranch || null;
-    if (!state.user) {
+  // Only maintain active login state within the active tab session (sessionStorage)
+  // When opening the web fresh (new tab/reopening browser), always show the Portal Chooser
+  const activeTabToken = sessionStorage.getItem('scet_auth_token');
+  if (activeTabToken) {
+    try {
+      const me = await api('/api/auth/me');
+      state.user = me?.user || null;
+      state.branch = me?.activeBranch || null;
+    } catch {
+      sessionStorage.removeItem('scet_auth_token');
+      sessionStorage.removeItem('scet_branch_token');
       localStorage.removeItem('scet_auth_token');
       localStorage.removeItem('scet_branch_token');
+      state.user = state.branch = null;
     }
-    registerServiceWorker();
-  } catch {
+  } else {
+    // Fresh website visit: clean startup at the Portal Chooser
     localStorage.removeItem('scet_auth_token');
     localStorage.removeItem('scet_branch_token');
+    state.user = null;
+    state.branch = null;
   }
+  registerServiceWorker();
 
   if (!document.querySelector('.blocked')) {
     // Wait for splash screen animation to run

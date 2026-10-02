@@ -115,6 +115,7 @@ export function authView() {
           try {
             const r = await api('/api/auth/login', { method: 'POST', body: { username, password, portal } });
             if (r?.token) {
+              sessionStorage.setItem('scet_auth_token', r.token);
               localStorage.setItem('scet_auth_token', r.token);
             }
             state.user = r.user;

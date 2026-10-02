@@ -10,12 +10,12 @@ export async function api(path, { method = 'GET', body, headers = {} } = {}) {
     reqHeaders['Content-Type'] = 'application/json';
   }
 
-  // Dual-auth: Always send Bearer token and Branch token headers to support cross-site requests
-  const authToken = localStorage.getItem('scet_auth_token');
+  // Dual-auth: Send Bearer token and Branch token headers to support cross-site requests
+  const authToken = sessionStorage.getItem('scet_auth_token') || localStorage.getItem('scet_auth_token');
   if (authToken && !reqHeaders['Authorization']) {
     reqHeaders['Authorization'] = `Bearer ${authToken}`;
   }
-  const branchToken = localStorage.getItem('scet_branch_token');
+  const branchToken = sessionStorage.getItem('scet_branch_token') || localStorage.getItem('scet_branch_token');
   if (branchToken && !reqHeaders['X-Branch-Token']) {
     reqHeaders['X-Branch-Token'] = branchToken;
   }
