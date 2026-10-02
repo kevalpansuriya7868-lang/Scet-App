@@ -4,12 +4,14 @@ const { unsign } = require('../utils/crypto');
 
 const COOKIE = 'scet_session';
 const BRANCH_COOKIE = 'scet_branch';
+const isProd = cfg.isProd;
 const cookieOpts = {
-  httpOnly: true, sameSite: 'strict', secure: cfg.isProd && !!cfg.trustProxy, path: '/',
+  httpOnly: true,
+  sameSite: isProd ? 'none' : 'lax',
+  secure: isProd,
+  path: '/',
   maxAge: cfg.sessionHours * 3600e3,
 };
-// NOTE: `secure` is only enabled when running behind a TLS-terminating proxy (TRUST_PROXY set).
-// On a plain-HTTP campus LAN a Secure cookie would never be sent back.
 
 /** Verifies the Firebase session cookie (revocation + disabled-user aware) and attaches req.user. */
 async function attachUser(req, res, next) {

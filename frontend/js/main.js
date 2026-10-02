@@ -33,8 +33,8 @@ document.addEventListener('ip-blocked', (e) => {
 (async () => {
   try {
     const me = await api('/api/auth/me');
-    state.user = me.user;
-    state.branch = me.activeBranch || null;
+    state.user = me?.user || null;
+    state.branch = me?.activeBranch || null;
     registerServiceWorker();
   } catch { /* not logged in, or blocked (handled by ip-blocked) */ }
 
