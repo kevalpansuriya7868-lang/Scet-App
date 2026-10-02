@@ -1,11 +1,11 @@
-import { api } from './api.js';
-import { state, bus } from './state.js';
-import { h } from './ui.js';
-import { authView } from './views/auth.js';
-import { studentView } from './views/student.js';
-import { branchView } from './views/branches.js';
-import { consoleView } from './views/console.js';
-import { registerServiceWorker } from './notifications.js';
+import { api } from './api.js?v=20261002_05';
+import { state, bus } from './state.js?v=20261002_05';
+import { h } from './ui.js?v=20261002_05';
+import { authView } from './views/auth.js?v=20261002_05';
+import { studentView } from './views/student.js?v=20261002_05';
+import { branchView } from './views/branches.js?v=20261002_05';
+import { consoleView } from './views/console.js?v=20261002_05';
+import { registerServiceWorker } from './notifications.js?v=20261002_05';
 
 const root = document.getElementById('app');
 let dispose = null;
