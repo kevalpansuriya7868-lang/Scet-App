@@ -24,7 +24,7 @@ async function getBranch(code) {
 /* One-time passwords, 10 min expiry, 5 attempts, stored only as HMAC. */
 async function issueOtp(code, purpose, email) {
   const otp = newOtp();
-  await db.doc(`otps/${code}__${purpose}`).set({ hash: hmac(otp, cfg.sessionSecret), exp: Date.now() + 10 * 60e3, attempts: 0 });
+  await db.doc(`otps/${code}__${purpose}`).set({ hash: hmac(otp, cfg.sessionSecret), exp: Date.now() + 5 * 60e3, attempts: 0 });
   const t = templates.otp(code, otp);
   const r = await sendMail({ to: email, ...t });
   if (!r.ok) {

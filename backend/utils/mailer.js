@@ -12,55 +12,94 @@ const transport = smtpReady
     port: cfg.smtp.port,
     secure: cfg.smtp.port === 465,
     auth: { user: cfg.smtp.user, pass: cfg.smtp.pass },
-    connectionTimeout: 3500, // 3.5s max to connect (avoids 2min hangs on cloud hosts like Render)
-    greetingTimeout: 3500,   // 3.5s max greeting
-    socketTimeout: 5000,     // 5s max socket inactivity
+    connectionTimeout: 8000,
+    greetingTimeout: 8000,
+    socketTimeout: 10000,
   })
   : null;
 
-let lastSmtpFailure = 0;
-let lastSmtpError = '';
-
 async function sendMail({ to, subject, text, attachments }) {
-  if (!transport || !to) {
-    // Dev-mode fallback: print the email to the server console so OTPs are still usable
+  if (!to) return { ok: false, error: 'Recipient email address is required.' };
+
+  // 1. HTTP-based email delivery (Port 443 - works everywhere including Render free tier)
+  if (process.env.RESEND_API_KEY) {
+    try {
+      const res = await fetch('https://api.resend.com/emails', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${process.env.RESEND_API_KEY}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          from: process.env.SMTP_FROM || 'SCET Lab Portal <onboarding@resend.dev>',
+          to: [to],
+          subject,
+          text
+        })
+      });
+      const data = await res.json();
+      if (res.ok) return { ok: true, provider: 'resend', id: data.id };
+      console.warn('[Resend API Error]:', data);
+    } catch (e) {
+      console.warn('[Resend API Network Error]:', e.message);
+    }
+  }
+
+  if (process.env.BREVO_API_KEY) {
+    try {
+      const res = await fetch('https://api.brevo.com/v3/smtp/email', {
+        method: 'POST',
+        headers: {
+          'api-key': process.env.BREVO_API_KEY,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          sender: { email: cfg.smtp.user || process.env.SMTP_FROM || 'admin@scet.ac.in', name: 'SCET Lab Portal' },
+          to: [{ email: to }],
+          subject,
+          textContent: text
+        })
+      });
+      const data = await res.json();
+      if (res.ok) return { ok: true, provider: 'brevo', messageId: data.messageId };
+      console.warn('[Brevo API Error]:', data);
+    } catch (e) {
+      console.warn('[Brevo API Network Error]:', e.message);
+    }
+  }
+
+  if (process.env.HTTP_EMAIL_URL) {
+    try {
+      const res = await fetch(process.env.HTTP_EMAIL_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ to, subject, text })
+      });
+      if (res.ok) return { ok: true, provider: 'webhook' };
+    } catch (e) {
+      console.warn('[HTTP Email Webhook Error]:', e.message);
+    }
+  }
+
+  // 2. Standard Nodemailer SMTP
+  if (!transport) {
     if (!cfg.isProd) {
       console.log('\n========== [DEV EMAIL FALLBACK] ==========');
       console.log(`TO      : ${to}`);
       console.log(`SUBJECT : ${subject}`);
       console.log(`BODY    :\n${text}`);
       console.log('==========================================\n');
-      return { ok: true, devFallback: true };   // treat as sent so the flow continues
+      return { ok: true, devFallback: true };
     }
-    return { ok: false, error: 'SMTP is not configured. Set SMTP_USER and SMTP_PASS in .env to enable email delivery.' };
-  }
-
-  // Fast-fail if host recently timed out on SMTP ports (Render free tier egress drops SMTP packets)
-  if (lastSmtpFailure && (Date.now() - lastSmtpFailure < 60000)) {
-    console.warn(`[Mailer] Skipping slow SMTP connection (recent timeout: ${lastSmtpError}). Using instant fallback.`);
-    return { ok: false, error: lastSmtpError, isTimeout: true, isCachedTimeout: true };
+    return { ok: false, error: 'SMTP is not configured. Set SMTP_USER and SMTP_PASS to enable email delivery.' };
   }
 
   try {
     await transport.sendMail({ from: cfg.smtp.from || cfg.smtp.user, to, subject, text, attachments });
-    lastSmtpFailure = 0;
-    lastSmtpError = '';
-    return { ok: true };
+    return { ok: true, provider: 'smtp' };
   } catch (e) {
-    console.warn('[Mailer] Send failed:', e.message);
-    lastSmtpFailure = Date.now();
-    lastSmtpError = e.message;
-    const isTimeout = /timeout|etimedout|econnrefused|esocket/i.test(e.message || '');
-    if (!cfg.isProd) {
-      console.log('\n========== [DEV EMAIL FALLBACK - SMTP SEND FAILED] ==========');
-      console.log(`ERROR   : ${e.message}`);
-      console.log(`TO      : ${to}`);
-      console.log(`SUBJECT : ${subject}`);
-      console.log(`BODY    :\n${text}`);
-      console.log('=============================================================\n');
-      return { ok: true, devFallback: true, error: e.message, isTimeout };
-    }
-    return { ok: false, error: e.message, isTimeout };
+    console.warn('[Mailer] SMTP delivery failed:', e.message);
+    return { ok: false, error: e.message };
   }
 }
 
@@ -85,7 +124,7 @@ const toDateObj = (t) => {
 const templates = {
   otp: (branch, otp) => ({
     subject: `SCET Lab Portal - OTP for Branch ${branch}`,
-    text: `Hello Faculty Member,\n\nA secure authorization request was initiated for Department/Branch: ${branch}.\nYour 6-digit One-Time Password (OTP) is: ${otp}\n\nIt expires in 10 minutes. Do not share it.\nSarvajanik College of Engineering & Technology (SCET)`,
+    text: `Hello Faculty Member,\n\nA secure authorization request was initiated for Department/Branch: ${branch}.\nYour 6-digit One-Time Password (OTP) is: ${otp}\n\nIt expires in 5 minutes. Do not share it.\nSarvajanik College of Engineering & Technology (SCET)`,
   }),
   issued: (i) => ({
     subject: `Hardware Issued Receipt - SCET Lab [${gatePassNo(i)}]`,

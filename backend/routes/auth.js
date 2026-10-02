@@ -73,12 +73,12 @@ router.post('/signup/student/send-otp', signupLimit, async (req, res) => {
     if (!mobileSnap.empty) throw httpErr(409, 'A student account with this mobile number already exists.');
   }
 
-  // Generate 6-digit OTP scoped specifically to student signup
+  // Generate 6-digit OTP scoped specifically to student signup (expires in 5 minutes)
   const otp = newOtp();
   const otpDocId = `signup_student__${email.replace(/[^a-z0-9]/g, '_')}`;
   await db.doc(`otps/${otpDocId}`).set({
     hash: hmac(otp, cfg.sessionSecret),
-    exp: Date.now() + 10 * 60e3,
+    exp: Date.now() + 5 * 60e3,
     attempts: 0,
     email,
   });
@@ -89,7 +89,7 @@ router.post('/signup/student/send-otp', signupLimit, async (req, res) => {
     mailResult = await sendMail({
       to: email,
       subject: 'SCET Lab Portal - Student Account Verification Code',
-      text: `Dear ${fullName},\n\nGreetings from Sarvajanik College of Engineering & Technology (SCET)!\n\nYour 6-digit verification code to create your SCET Lab Portal student account is:\n\n    ${otp}\n\nThis verification code is valid for 10 minutes. Do not share this code with anyone.\n\nBest Regards,\nSCET Lab Administration\nSarvajanik College of Engineering & Technology (SCET), Surat`,
+      text: `Dear ${fullName},\n\nGreetings from Sarvajanik College of Engineering & Technology (SCET)!\n\nYour 6-digit verification code to create your SCET Lab Portal student account is:\n\n    ${otp}\n\nThis verification code is valid for 5 minutes. Do not share this code with anyone.\n\nBest Regards,\nSCET Lab Administration\nSarvajanik College of Engineering & Technology (SCET), Surat`,
     });
   } catch (err) {
     mailResult = { ok: false, error: err.message };
@@ -101,28 +101,22 @@ router.post('/signup/student/send-otp', signupLimit, async (req, res) => {
       to: mobile,
       studentName: fullName,
       reqId: 'OTP',
-      time: 'Valid for 10 minutes',
+      time: 'Valid for 5 minutes',
       note: `Your SCET Student Verification Code is: ${otp}`,
       itemsSummary: `Student OTP: ${otp}`,
       type: 'OTP_VERIFICATION'
     }).catch(e => console.warn('[OTP WhatsApp dispatch error]:', e.message));
   }
 
-  const resPayload = {
-    ok: true,
-    emailDelivered: mailResult.ok,
-    message: mailResult.ok
-      ? `Verification code sent to ${email}!`
-      : `Verification code generated! Auto-delivered to your screen and mobile.`
-  };
-
-  // If email delivery timed out/failed on cloud host or in dev mode, supply devOtp so user is NEVER blocked
-  if (!mailResult.ok || !cfg.isProd) {
-    resPayload.devOtp = otp;
-    resPayload.smtpBlocked = !mailResult.ok;
+  if (!mailResult.ok) {
+    console.error('[Send OTP] Email delivery failed:', mailResult.error);
+    throw httpErr(502, `Email delivery failed: ${mailResult.error || 'Unable to deliver verification code to @scet.ac.in email'}. Please check your email address and try again.`);
   }
 
-  res.json(resPayload);
+  res.json({
+    ok: true,
+    message: `Verification code sent to ${email}! Valid for 5 minutes.`
+  });
 });
 
 /* ---------- Student sign-up: Complete Registration with OTP ---------- */
@@ -235,12 +229,12 @@ router.post('/signup/admin/send-otp', signupLimit, async (req, res) => {
     if (!mobileSnap.empty) throw httpErr(409, 'A faculty account with this mobile number already exists.');
   }
 
-  // Generate 6-digit OTP scoped specifically to admin signup
+  // Generate 6-digit OTP scoped specifically to admin signup (expires in 5 minutes)
   const otp = newOtp();
   const otpDocId = `signup_admin__${email.replace(/[^a-z0-9]/g, '_')}`;
   await db.doc(`otps/${otpDocId}`).set({
     hash: hmac(otp, cfg.sessionSecret),
-    exp: Date.now() + 10 * 60e3,
+    exp: Date.now() + 5 * 60e3,
     attempts: 0,
     email,
   });
@@ -251,7 +245,7 @@ router.post('/signup/admin/send-otp', signupLimit, async (req, res) => {
     mailResult = await sendMail({
       to: email,
       subject: 'SCET Lab Portal - Faculty Account Verification Code',
-      text: `Dear ${fullName},\n\nGreetings from Sarvajanik College of Engineering & Technology (SCET)!\n\nYour 6-digit verification code to create your SCET Lab Portal Faculty / Admin account is:\n\n    ${otp}\n\nThis verification code is valid for 10 minutes. Do not share this code with anyone.\n\nBest Regards,\nSCET Lab Administration\nSarvajanik College of Engineering & Technology (SCET), Surat`,
+      text: `Dear ${fullName},\n\nGreetings from Sarvajanik College of Engineering & Technology (SCET)!\n\nYour 6-digit verification code to create your SCET Lab Portal Faculty / Admin account is:\n\n    ${otp}\n\nThis verification code is valid for 5 minutes. Do not share this code with anyone.\n\nBest Regards,\nSCET Lab Administration\nSarvajanik College of Engineering & Technology (SCET), Surat`,
     });
   } catch (err) {
     mailResult = { ok: false, error: err.message };
@@ -263,28 +257,22 @@ router.post('/signup/admin/send-otp', signupLimit, async (req, res) => {
       to: mobile,
       studentName: fullName,
       reqId: 'OTP',
-      time: 'Valid for 10 minutes',
+      time: 'Valid for 5 minutes',
       note: `Your SCET Faculty Verification Code is: ${otp}`,
       itemsSummary: `Faculty OTP: ${otp}`,
       type: 'OTP_VERIFICATION'
     }).catch(e => console.warn('[Admin OTP WhatsApp dispatch error]:', e.message));
   }
 
-  const resPayload = {
-    ok: true,
-    emailDelivered: mailResult.ok,
-    message: mailResult.ok
-      ? `Verification code sent to ${email}!`
-      : `Verification code generated! Auto-delivered to your screen and mobile.`
-  };
-
-  // If email delivery timed out/failed on cloud host or in dev mode, supply devOtp so user is NEVER blocked
-  if (!mailResult.ok || !cfg.isProd) {
-    resPayload.devOtp = otp;
-    resPayload.smtpBlocked = !mailResult.ok;
+  if (!mailResult.ok) {
+    console.error('[Send Admin OTP] Email delivery failed:', mailResult.error);
+    throw httpErr(502, `Email delivery failed: ${mailResult.error || 'Unable to deliver verification code to @scet.ac.in email'}. Please check your email address and try again.`);
   }
 
-  res.json(resPayload);
+  res.json({
+    ok: true,
+    message: `Verification code sent to ${email}! Valid for 5 minutes.`
+  });
 });
 
 /* ---------- Admin sign-up: Faculty Self-Registration with OTP or Master Bootstrap ---------- */

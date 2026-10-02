@@ -50,10 +50,10 @@ function otpFlow(b, purpose) {
       const r = await api(`/api/branches/${b.code}/otp`, { method: 'POST', body: { purpose } });
       if (r.devOtp) {
         f.refs.otp.value = r.devOtp;
-        status.innerHTML = `OTP sent to ${r.sentTo} (valid 10 minutes).<br><span style="color:#b06000;font-size:0.9em;display:block;margin-top:4px">⚠️ <b>Dev Mode Fallback</b> (Gmail rejected app password: <i>${r.smtpWarning || 'Bad credentials'}</i>)<br><b style="color:#137333">Auto-filled OTP: ${r.devOtp}</b> (also logged in server terminal)</span>`;
+        status.innerHTML = `OTP sent to ${r.sentTo} (valid 5 minutes).<br><span style="color:#b06000;font-size:0.9em;display:block;margin-top:4px">⚠️ <b>Dev Mode Fallback</b> (Gmail rejected app password: <i>${r.smtpWarning || 'Bad credentials'}</i>)<br><b style="color:#137333">Auto-filled OTP: ${r.devOtp}</b> (also logged in server terminal)</span>`;
         toast(`Dev OTP auto-filled: ${r.devOtp}`);
       } else {
-        status.textContent = `OTP sent to ${r.sentTo} (valid 10 minutes).`;
+        status.textContent = `OTP sent to ${r.sentTo} (valid 5 minutes).`;
       }
     }
     catch (err) { toast(err.message, 'err'); } finally { e.target.disabled = false; }
