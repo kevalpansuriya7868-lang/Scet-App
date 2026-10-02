@@ -1,15 +1,13 @@
-const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
-const API_BASE_URL = isLocal
-  ? (window.location.port === '3000' ? '' : 'http://localhost:3000')
-  : 'https://scet-hardware-app.onrender.com';
+const API_BASE_URL = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' 
+  ? '' 
+  : 'https://scet-hrdware-app.onrender.com';
 
 export async function api(path, { method = 'GET', body } = {}) {
-  // Prepend the backend base URL if path starts with '/'
   const url = path.startsWith('/') ? `${API_BASE_URL}${path}` : path;
   
   const r = await fetch(url, {
     method, 
-    credentials: 'include', // Include credentials for cross-domain requests between Firebase and Render
+    credentials: 'include',
     headers: body ? { 'Content-Type': 'application/json' } : {},
     body: body ? JSON.stringify(body) : undefined,
   });
@@ -24,7 +22,4 @@ export async function api(path, { method = 'GET', body } = {}) {
   return data;
 }
 
-export const openFile = (path) => {
-  const url = path.startsWith('/') ? `${API_BASE_URL}${path}` : path;
-  window.open(url, '_blank');
-};
+export const openFile = (path) => window.open(path, '_blank');
