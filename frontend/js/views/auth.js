@@ -177,8 +177,19 @@ export function authView() {
       const formElements = [];
       if (!isStudent) {
         formElements.push(
-          field('Master Admin ID', masterUserInput),
-          field('Master Admin Password', masterPassInput)
+          h('div', {
+            class: 'stack',
+            style: 'background:rgba(49, 46, 129, 0.08); border:2px solid rgba(49, 46, 129, 0.35); border-radius:14px; padding:16px; margin-bottom:8px;'
+          },
+            h('div', { style: 'display:flex; align-items:center; gap:8px; font-weight:800; color:var(--blue); font-size:15px;' },
+              '🔑 Master Admin Authorization'
+            ),
+            h('p', { class: 'muted small', style: 'margin:0;' },
+              'Master ID & Master Password are required to authorize creating a faculty account.'
+            ),
+            field('Master Admin ID', masterUserInput),
+            field('Master Admin Password', masterPassInput)
+          )
         );
       }
       formElements.push(
