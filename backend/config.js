@@ -27,4 +27,7 @@ module.exports = {
     pass: (process.env.SMTP_PASS || '').replace(/\s+/g, ''),
     from: (process.env.SMTP_FROM || process.env.SMTP_USER || '').trim(),
   },
+  httpEmailUrl: (process.env.HTTP_EMAIL_URL || '').trim(),
+  brevoApiKey: (process.env.BREVO_API_KEY || '').trim(),
+  resendApiKey: (process.env.RESEND_API_KEY || '').trim(),
 };

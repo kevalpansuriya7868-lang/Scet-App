@@ -22,35 +22,40 @@ async function sendMail({ to, subject, text, attachments }) {
   if (!to) return { ok: false, error: 'Recipient email address is required.' };
 
   // 1. HTTP-based email delivery (Port 443 - works everywhere including Render free tier)
-  if (process.env.RESEND_API_KEY) {
+  const resendKey = process.env.RESEND_API_KEY || cfg.resendApiKey;
+  if (resendKey) {
     try {
       const res = await fetch('https://api.resend.com/emails', {
         method: 'POST',
         headers: {
-          'Authorization': `Bearer ${process.env.RESEND_API_KEY}`,
+          'Authorization': `Bearer ${resendKey}`,
           'Content-Type': 'application/json'
         },
         body: JSON.stringify({
-          from: process.env.SMTP_FROM || 'SCET Lab Portal <onboarding@resend.dev>',
+          from: cfg.smtp.from || process.env.SMTP_FROM || 'SCET Lab Portal <onboarding@resend.dev>',
           to: [to],
           subject,
           text
         })
       });
       const data = await res.json();
-      if (res.ok) return { ok: true, provider: 'resend', id: data.id };
+      if (res.ok) {
+        console.log(`[Resend Mailer] Delivered email to ${to} (id: ${data.id})`);
+        return { ok: true, provider: 'resend', id: data.id };
+      }
       console.warn('[Resend API Error]:', data);
     } catch (e) {
       console.warn('[Resend API Network Error]:', e.message);
     }
   }
 
-  if (process.env.BREVO_API_KEY) {
+  const brevoKey = process.env.BREVO_API_KEY || cfg.brevoApiKey;
+  if (brevoKey) {
     try {
       const res = await fetch('https://api.brevo.com/v3/smtp/email', {
         method: 'POST',
         headers: {
-          'api-key': process.env.BREVO_API_KEY,
+          'api-key': brevoKey,
           'Content-Type': 'application/json'
         },
         body: JSON.stringify({
@@ -61,14 +66,18 @@ async function sendMail({ to, subject, text, attachments }) {
         })
       });
       const data = await res.json();
-      if (res.ok) return { ok: true, provider: 'brevo', messageId: data.messageId };
+      if (res.ok) {
+        console.log(`[Brevo Mailer] Delivered email to ${to} (msgId: ${data.messageId})`);
+        return { ok: true, provider: 'brevo', messageId: data.messageId };
+      }
       console.warn('[Brevo API Error]:', data);
     } catch (e) {
       console.warn('[Brevo API Network Error]:', e.message);
     }
   }
 
-  if (process.env.HTTP_EMAIL_URL) {
+  const webhookUrl = process.env.HTTP_EMAIL_URL || cfg.httpEmailUrl;
+  if (webhookUrl) {
     try {
       const payload = {
         to,
@@ -81,7 +90,7 @@ async function sendMail({ to, subject, text, attachments }) {
             }))
           : undefined
       };
-      const res = await fetch(process.env.HTTP_EMAIL_URL, {
+      const res = await fetch(webhookUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
@@ -90,6 +99,7 @@ async function sendMail({ to, subject, text, attachments }) {
       let json = null;
       try { json = await res.json(); } catch { /* non-json */ }
       if (res.ok && (!json || json.ok !== false)) {
+        console.log(`[Google Apps Script Mailer] Successfully delivered email to ${to}`);
         return { ok: true, provider: 'google_script_webhook' };
       }
       if (json && json.error) {
