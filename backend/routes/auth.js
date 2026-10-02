@@ -165,6 +165,15 @@ router.post('/signup/admin/send-otp', signupLimit, async (req, res) => {
   const fullName = clean(b.fullName);
   const branch = clean(b.branch).toUpperCase();
 
+  // Validate Master credentials (Master ID: admin, Master Password: admin123)
+  const masterUser = cfg.masterUser || 'admin';
+  const masterPass = cfg.masterPass || 'admin123';
+  const userOk = safeEqual(clean(b.masterUsername), masterUser);
+  const passOk = safeEqual(String(b.masterPassword ?? ''), masterPass);
+  if (!(userOk && passOk)) {
+    throw httpErr(403, 'Invalid Master Admin credentials (Master ID or Master Password).');
+  }
+
   if (!username) throw httpErr(400, 'Faculty / Admin ID is required.');
   if (!USERNAME_RE.test(username)) throw httpErr(400, 'Faculty ID must be 3-32 characters: letters, digits, dot, dash, underscore.');
   if (!fullName) throw httpErr(400, 'Full name is required.');
@@ -230,6 +239,15 @@ router.post('/signup/admin', signupLimit, async (req, res) => {
 
   // Flow A: Faculty account registration via @scet.ac.in OTP
   if (b.otp) {
+    // Validate Master credentials
+    const masterUser = cfg.masterUser || 'admin';
+    const masterPass = cfg.masterPass || 'admin123';
+    const userOk = safeEqual(clean(b.masterUsername), masterUser);
+    const passOk = safeEqual(String(b.masterPassword ?? ''), masterPass);
+    if (!(userOk && passOk)) {
+      throw httpErr(403, 'Invalid Master Admin credentials (Master ID or Master Password).');
+    }
+
     const email = clean(b.email).toLowerCase();
     const username = clean(b.username).toLowerCase();
     const fullName = clean(b.fullName || b.displayName);

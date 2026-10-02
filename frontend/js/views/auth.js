@@ -123,6 +123,18 @@ export function authView() {
       const isStudent = portal === 'student';
       const saved = savedFormValues[portal] || {};
 
+      const masterUserInput = !isStudent ? h('input', {
+        type: 'text',
+        placeholder: 'Master ID (admin)',
+        value: saved.masterUsername || ''
+      }) : null;
+
+      const masterPassInput = !isStudent ? h('input', {
+        type: 'password',
+        placeholder: 'Master password (admin123)',
+        value: saved.masterPassword || ''
+      }) : null;
+
       const fullNameInput = h('input', {
         type: 'text',
         placeholder: isStudent ? 'Enter your full name' : 'e.g. Dr. Alpesh Patel',
@@ -162,18 +174,40 @@ export function authView() {
         type: 'submit'
       }, '🚀 Send Verification Code →');
 
-      const form = h('form', { class: 'stack' },
+      const formElements = [];
+      if (!isStudent) {
+        formElements.push(
+          field('Master Admin ID', masterUserInput),
+          field('Master Admin Password', masterPassInput)
+        );
+      }
+      formElements.push(
         field('Full name', fullNameInput),
         field(isStudent ? 'Enrollment number (Login ID)' : 'Faculty ID (Login ID)', idInput),
         field(isStudent ? 'Branch / dept (e.g. CO, IT, EC)' : 'Department (e.g. CO, IT, EC)', branchInput),
         field('Mobile number (10 digits)', mobileInput),
         field('Official Email (@scet.ac.in only)', emailInput),
-        field('Password (min 8 chars)', passwordInput),
+        field('Your Password (min 8 chars)', passwordInput),
         submitBtn
       );
 
+      const form = h('form', { class: 'stack' }, ...formElements);
+
       form.onsubmit = async (e) => {
         e.preventDefault();
+        let masterUsername = '';
+        let masterPassword = '';
+        if (!isStudent) {
+          masterUsername = masterUserInput.value.trim();
+          masterPassword = masterPassInput.value;
+          if (!masterUsername) {
+            return toast('⚠️ Master Admin ID is required (e.g. admin).', 'err');
+          }
+          if (!masterPassword) {
+            return toast('⚠️ Master Admin password is required (e.g. admin123).', 'err');
+          }
+        }
+
         const fullName = fullNameInput.value.trim();
         const rawId = idInput.value.trim();
         const branch = branchInput.value.trim().toUpperCase();
@@ -217,7 +251,10 @@ export function authView() {
           mobile,
           email,
           password,
-          ...(isStudent ? { enrollmentNo: rawId.toUpperCase() } : { username: rawId.toLowerCase() })
+          ...(isStudent
+            ? { enrollmentNo: rawId.toUpperCase() }
+            : { username: rawId.toLowerCase(), masterUsername, masterPassword }
+          )
         };
 
         const origText = submitBtn.innerText;
@@ -236,9 +273,9 @@ export function authView() {
             const username = rawId.toLowerCase();
             await api('/api/auth/signup/admin/send-otp', {
               method: 'POST',
-              body: { fullName, username, branch, mobile, email }
+              body: { masterUsername, masterPassword, fullName, username, branch, mobile, email }
             });
-            pendingSignup = { portal: 'admin', fullName, username, branch, mobile, email, password };
+            pendingSignup = { portal: 'admin', masterUsername, masterPassword, fullName, username, branch, mobile, email, password };
           }
 
           toast(`✅ Verification code sent! Please check your ${email} inbox.`);
@@ -410,7 +447,7 @@ export function authView() {
           const endpoint = isStudent ? '/api/auth/signup/student/send-otp' : '/api/auth/signup/admin/send-otp';
           const body = isStudent
             ? { fullName: pendingSignup.fullName, enrollmentNo: pendingSignup.enrollmentNo, branch: pendingSignup.branch, mobile: pendingSignup.mobile, email: pendingSignup.email }
-            : { fullName: pendingSignup.fullName, username: pendingSignup.username, branch: pendingSignup.branch, mobile: pendingSignup.mobile, email: pendingSignup.email };
+            : { masterUsername: pendingSignup.masterUsername, masterPassword: pendingSignup.masterPassword, fullName: pendingSignup.fullName, username: pendingSignup.username, branch: pendingSignup.branch, mobile: pendingSignup.mobile, email: pendingSignup.email };
 
           await api(endpoint, { method: 'POST', body });
           toast(`✅ New verification code sent to ${pendingSignup.email}!`);
