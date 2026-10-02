@@ -35,4 +35,5 @@ module.exports = {
   auth: admin.auth(),
   db: admin.firestore(),
   FieldValue: admin.firestore.FieldValue,
+  Timestamp: admin.firestore.Timestamp,
 };

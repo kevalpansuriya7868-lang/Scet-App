@@ -87,7 +87,11 @@ router.post('/:id/accept', audited('STUDENT_REQUEST_ACCEPTED'), async (req, res)
 
   const studentEmail = data.studentEmail;
   if (studentEmail && templates.requestAccepted) {
-    await sendMail({ to: studentEmail, ...templates.requestAccepted(data, collectionTime, collectionNote) });
+    try {
+      await sendMail({ to: studentEmail, ...templates.requestAccepted(data, collectionTime, collectionNote) });
+    } catch (mailErr) {
+      console.error('[Accept Request] Mail delivery failed:', mailErr.message);
+    }
   }
 
   res.locals.auditDetail = `Accepted request #${id} for ${data.enrollmentNo}; collection time: ${collectionTime} (${pushResult.sent || 0} phone push sent)`;
@@ -222,7 +226,11 @@ router.post('/:id/reject', audited('STUDENT_REQUEST_REJECTED'), async (req, res)
   }
 
   if (data.studentEmail && templates.requestRejected) {
-    await sendMail({ to: data.studentEmail, ...templates.requestRejected(data, reason) });
+    try {
+      await sendMail({ to: data.studentEmail, ...templates.requestRejected(data, reason) });
+    } catch (mailErr) {
+      console.error('[Reject Request] Mail delivery failed:', mailErr.message);
+    }
   }
 
   res.locals.auditDetail = `Rejected request #${id} for ${data.enrollmentNo}: ${reason}`;

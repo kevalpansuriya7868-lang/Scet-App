@@ -1105,6 +1105,21 @@ body.theme-admin .auth-card {
   box-shadow: var(--shadow-glow);
 }
 
+.topbar-logos {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 12px;
+  flex-shrink: 0;
+}
+
+.topbar-user {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
 .topbar h1 {
   font-size: 17px;
   letter-spacing: .2px;
@@ -2111,6 +2126,28 @@ html, body {
   .topbar {
     flex-direction: column;
     align-items: flex-start;
+    gap: 8px;
+  }
+
+  .topbar-logos {
+    display: flex !important;
+    flex-direction: row !important;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .topbar-logos img {
+    height: 38px;
+    width: 38px;
+  }
+
+  .topbar-user {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    margin-top: 2px;
   }
 
   .topbar .grow {

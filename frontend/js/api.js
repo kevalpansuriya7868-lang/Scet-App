@@ -22,4 +22,7 @@ export async function api(path, { method = 'GET', body } = {}) {
   return data;
 }
 
-export const openFile = (path) => window.open(path, '_blank');
+export const openFile = (path) => {
+  const url = path.startsWith('/') ? `${API_BASE_URL}${path}` : path;
+  window.open(url, '_blank');
+};
