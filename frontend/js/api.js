@@ -2,13 +2,28 @@ const API_BASE_URL = window.location.hostname === 'localhost' || window.location
   ? '' 
   : 'https://scet-hrdware-app.onrender.com';
 
-export async function api(path, { method = 'GET', body } = {}) {
+export async function api(path, { method = 'GET', body, headers = {} } = {}) {
   const url = path.startsWith('/') ? `${API_BASE_URL}${path}` : path;
   
+  const reqHeaders = { ...headers };
+  if (body && !reqHeaders['Content-Type']) {
+    reqHeaders['Content-Type'] = 'application/json';
+  }
+
+  // Dual-auth: Always send Bearer token and Branch token headers to support cross-site requests
+  const authToken = localStorage.getItem('scet_auth_token');
+  if (authToken && !reqHeaders['Authorization']) {
+    reqHeaders['Authorization'] = `Bearer ${authToken}`;
+  }
+  const branchToken = localStorage.getItem('scet_branch_token');
+  if (branchToken && !reqHeaders['X-Branch-Token']) {
+    reqHeaders['X-Branch-Token'] = branchToken;
+  }
+
   const r = await fetch(url, {
     method, 
     credentials: 'include',
-    headers: body ? { 'Content-Type': 'application/json' } : {},
+    headers: reqHeaders,
     body: body ? JSON.stringify(body) : undefined,
   });
   let data = null;

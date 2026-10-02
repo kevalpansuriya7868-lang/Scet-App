@@ -18,7 +18,8 @@ export async function branchView() {
 function unlock(b) {
   const f = fields([{ name: 'password', label: `Password for ${b.code}`, type: 'password', ac: 'off' }]);
   modal(`Enter ${b.code} — ${b.name}`, f.el, [{ label: 'Unlock', run: async (close) => {
-    await api(`/api/branches/${b.code}/unlock`, { method: 'POST', body: f.values() });
+    const res = await api(`/api/branches/${b.code}/unlock`, { method: 'POST', body: f.values() });
+    if (res?.branchToken) localStorage.setItem('scet_branch_token', res.branchToken);
     state.branch = b.code; close(); rerender();
   } }]);
 }

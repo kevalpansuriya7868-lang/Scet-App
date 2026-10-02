@@ -40,6 +40,11 @@ export function consoleView() {
   };
   draw();
 
-  const back = h('button', { class: 'btn ghost sm', onclick: async () => { await api(`/api/branches/${code}/lock`, { method: 'POST' }); state.branch = null; rerender(); } }, '← Switch branch');
+  const back = h('button', { class: 'btn ghost sm', onclick: async () => {
+    try { await api(`/api/branches/${code}/lock`, { method: 'POST' }); } catch {}
+    localStorage.removeItem('scet_branch_token');
+    state.branch = null;
+    rerender();
+  } }, '← Switch branch');
   return { el: shell(`Department ${code}`, h('div', { class: 'row', style: 'margin-bottom:8px' }, back, h('span', { class: 'chip' }, `Branch: ${code}`)), tabs, body), dispose: () => dispose?.() };
 }

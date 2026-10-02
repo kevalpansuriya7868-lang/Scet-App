@@ -458,7 +458,8 @@ router.post('/forgot-password', forgotLimit, async (req, res) => {
 
 /* ---------- Login / session ---------- */
 router.post('/login', loginLimit, async (req, res) => {
-  const username = clean(req.body?.username).toLowerCase();
+  const rawUsername = clean(req.body?.username);
+  const username = rawUsername.toLowerCase();
   const { password, portal } = req.body || {};
   if (!username || typeof password !== 'string' || !password || !['admin', 'student'].includes(portal)) {
     throw httpErr(400, 'Username, password and portal are required.');
@@ -467,6 +468,8 @@ router.post('/login', loginLimit, async (req, res) => {
 
   // Allow logging in with @scet.ac.in email or ID (enrollment number or admin ID)
   let loginUsername = username;
+  let userProfile = null;
+
   if (username.includes('@')) {
     if (!username.endsWith('@scet.ac.in')) {
       return res.status(403).json({ error: 'Login with email is only permitted for official @scet.ac.in email accounts.' });
@@ -476,7 +479,8 @@ router.post('/login', loginLimit, async (req, res) => {
       .where('email', '==', username)
       .limit(1).get();
     if (snap.empty) return fail();
-    loginUsername = snap.docs[0].data().username;
+    userProfile = snap.docs[0].data();
+    loginUsername = userProfile.username;
   } else {
     const targetUsername = portal === 'student' ? username.toUpperCase() : username;
     let snap = await db.collection('users')
@@ -489,37 +493,77 @@ router.post('/login', loginLimit, async (req, res) => {
         .where('username', '==', username)
         .limit(1).get();
     }
+    if (snap.empty && portal === 'student') {
+      snap = await db.collection('users')
+        .where('role', '==', 'student')
+        .where('enrollmentNo', '==', rawUsername.toUpperCase())
+        .limit(1).get();
+    }
     if (!snap.empty) {
-      loginUsername = snap.docs[0].data().username;
+      userProfile = snap.docs[0].data();
+      loginUsername = userProfile.username;
     }
   }
 
-  // 1. Try role-scoped synthetic email
-  let r = await fetch(`https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=${cfg.firebaseWebApiKey}`, {
-    method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ email: toEmail(loginUsername, portal), password, returnSecureToken: true }),
-  });
-  let data = await r.json();
+  // Try role-scoped synthetic email first, then fallback to legacy and lowercase formats
+  const candidates = [
+    toEmail(loginUsername, portal),
+    toEmail(loginUsername.toLowerCase(), portal),
+    legacyEmail(loginUsername),
+    legacyEmail(loginUsername.toLowerCase()),
+    toEmail(rawUsername, portal),
+    legacyEmail(rawUsername),
+  ];
+  if (userProfile?.email) {
+    candidates.push(userProfile.email);
+    candidates.push(userProfile.email.toLowerCase());
+  }
+  if (userProfile?.enrollmentNo) {
+    candidates.push(toEmail(userProfile.enrollmentNo, portal));
+    candidates.push(legacyEmail(userProfile.enrollmentNo));
+  }
+  const uniqueEmails = [...new Set(candidates.filter(Boolean))];
 
-  // 2. Fallback to legacy synthetic email if needed (e.g. older student accounts)
-  if (!r.ok) {
-    const legacyR = await fetch(`https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=${cfg.firebaseWebApiKey}`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email: legacyEmail(loginUsername), password, returnSecureToken: true }),
-    });
-    if (legacyR.ok) {
-      r = legacyR;
-      data = await legacyR.json();
+  let r = { ok: false };
+  let data = null;
+
+  for (const candidateEmail of uniqueEmails) {
+    try {
+      const resp = await fetch(`https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=${cfg.firebaseWebApiKey}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: candidateEmail, password, returnSecureToken: true }),
+      });
+      if (resp.ok) {
+        r = resp;
+        data = await resp.json();
+        break;
+      }
+    } catch {
+      // Continue to next candidate
     }
   }
-  if (!r.ok) return fail();
+
+  if (!r.ok || !data?.idToken) return fail();
 
   const decoded = await auth.verifyIdToken(data.idToken);
-  if (decoded.role !== portal) return fail(); // students cannot use the admin door and vice versa
+
+  // Verify profile and role
+  const userDoc = await db.doc(`users/${decoded.uid}`).get();
+  const docData = userDoc.data() || userProfile || {};
+  const effectiveRole = decoded.role || docData.role;
+  if (effectiveRole !== portal) return fail(); // students cannot use the admin door and vice versa
+
+  if (docData.isActive === false) {
+    return res.status(403).json({ error: 'Your account is currently deactivated. Please contact the administrator.' });
+  }
+
+  if (!decoded.role && docData.role) {
+    await auth.setCustomUserClaims(decoded.uid, { role: docData.role, username: docData.username || decoded.username }).catch(() => {});
+  }
 
   // Verify @scet.ac.in email on profile
-  const userDoc = await db.doc(`users/${decoded.uid}`).get();
-  const profileEmail = (userDoc.data()?.email || '').toLowerCase();
+  const profileEmail = (docData.email || '').toLowerCase();
   if (profileEmail && !profileEmail.endsWith('@scet.ac.in')) {
     return res.status(403).json({ error: 'Login is only permitted for @scet.ac.in email accounts.' });
   }
@@ -527,7 +571,18 @@ router.post('/login', loginLimit, async (req, res) => {
   const session = await auth.createSessionCookie(data.idToken, { expiresIn: cfg.sessionHours * 3600e3 });
   res.cookie(COOKIE, session, cookieOpts);
   if (portal === 'admin') await writeAudit({ adminUid: decoded.uid, adminUsername: decoded.username, action: 'ADMIN_LOGIN', ip: req.ip });
-  res.json({ user: { uid: decoded.uid, username: decoded.username, role: decoded.role } });
+
+  res.json({
+    user: {
+      uid: decoded.uid,
+      username: decoded.username,
+      role: decoded.role,
+      displayName: docData.displayName || decoded.username,
+      enrollmentNo: docData.enrollmentNo,
+      branch: docData.branch
+    },
+    token: session
+  });
 });
 
 router.post('/logout', async (req, res) => {

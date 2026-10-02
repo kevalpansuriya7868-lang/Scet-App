@@ -14,7 +14,13 @@ export function shell(subtitle, ...content) {
       h('div', { class: 'grow' }, h('h1', {}, 'SCET Lab Component & Issue Tracking System'), h('div', { class: 'sub' }, subtitle)),
       u && h('div', { class: 'topbar-user' },
         h('span', { class: 'chip' }, `${u.role === 'admin' ? 'Admin' : 'Student'}: ${u.username}`),
-        h('button', { class: 'btn ghost sm', onclick: async () => { await api('/api/auth/logout', { method: 'POST' }); state.user = state.branch = null; rerender(); } }, 'Log out')
+        h('button', { class: 'btn ghost sm', onclick: async () => {
+          try { await api('/api/auth/logout', { method: 'POST' }); } catch {}
+          localStorage.removeItem('scet_auth_token');
+          localStorage.removeItem('scet_branch_token');
+          state.user = state.branch = null;
+          rerender();
+        } }, 'Log out')
       )),
     h('main', { class: 'wrap' }, ...content));
 }

@@ -75,6 +75,10 @@ export function authView() {
         placeholder: 'Enter your password',
         autocomplete: 'current-password'
       });
+      const errorBox = h('div', {
+        class: 'login-error-banner',
+        style: 'display:none;background:#fef2f2;border:1px solid #f87171;color:#b91c1c;padding:10px 14px;border-radius:8px;font-size:13px;font-weight:600;line-height:1.4;margin-bottom:8px;'
+      });
       const submitBtn = h('button', { class: 'btn primary block ripple', type: 'submit' }, 'Sign in');
       const forgotBtn = h('button', {
         class: 'btn ghost sm forgot-link', type: 'button',
@@ -85,32 +89,48 @@ export function authView() {
         class: 'stack',
         onsubmit: async (e) => {
           e.preventDefault();
+          errorBox.style.display = 'none';
+          errorBox.textContent = '';
+
           const username = usernameInput.value.trim().toLowerCase();
           const password = passwordInput.value;
           if (!username) {
-            return toast(portal === 'admin' ? '⚠️ Please enter your Faculty ID or @scet.ac.in email.' : '⚠️ Please enter your Enrollment number or @scet.ac.in email.', 'err');
+            const msg = portal === 'admin' ? '⚠️ Please enter your Faculty ID or @scet.ac.in email.' : '⚠️ Please enter your Enrollment number or @scet.ac.in email.';
+            errorBox.textContent = msg; errorBox.style.display = 'block';
+            return toast(msg, 'err');
           }
           if (!password) {
-            return toast('⚠️ Please enter your password.', 'err');
+            const msg = '⚠️ Please enter your password.';
+            errorBox.textContent = msg; errorBox.style.display = 'block';
+            return toast(msg, 'err');
           }
           if (username.includes('@') && !username.endsWith('@scet.ac.in')) {
-            return toast('⚠️ Email login is only permitted for official @scet.ac.in accounts.', 'err');
+            const msg = '⚠️ Email login is only permitted for official @scet.ac.in accounts.';
+            errorBox.textContent = msg; errorBox.style.display = 'block';
+            return toast(msg, 'err');
           }
 
           submitBtn.disabled = true;
           submitBtn.innerText = 'Signing in...';
           try {
             const r = await api('/api/auth/login', { method: 'POST', body: { username, password, portal } });
+            if (r?.token) {
+              localStorage.setItem('scet_auth_token', r.token);
+            }
             state.user = r.user;
             rerender();
           } catch (err) {
-            toast(err.message || 'Invalid credentials or inactive account.', 'err');
+            const msg = err.message || 'Invalid credentials or inactive account.';
+            errorBox.textContent = '⚠️ ' + msg;
+            errorBox.style.display = 'block';
+            toast(msg, 'err');
           } finally {
             submitBtn.disabled = false;
             submitBtn.innerText = 'Sign in';
           }
         }
       },
+        errorBox,
         field(portal === 'admin' ? 'Faculty ID or Email' : 'Enrollment number or Email', usernameInput),
         field('Password', passwordInput),
         submitBtn

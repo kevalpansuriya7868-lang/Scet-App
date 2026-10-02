@@ -1,11 +1,11 @@
-import { api } from './api.js?v=20261002_06';
-import { state, bus } from './state.js?v=20261002_06';
-import { h } from './ui.js?v=20261002_06';
-import { authView } from './views/auth.js?v=20261002_06';
-import { studentView } from './views/student.js?v=20261002_06';
-import { branchView } from './views/branches.js?v=20261002_06';
-import { consoleView } from './views/console.js?v=20261002_06';
-import { registerServiceWorker } from './notifications.js?v=20261002_06';
+import { api } from './api.js?v=20261003_01';
+import { state, bus } from './state.js?v=20261003_01';
+import { h } from './ui.js?v=20261003_01';
+import { authView } from './views/auth.js?v=20261003_01';
+import { studentView } from './views/student.js?v=20261003_01';
+import { branchView } from './views/branches.js?v=20261003_01';
+import { consoleView } from './views/console.js?v=20261003_01';
+import { registerServiceWorker } from './notifications.js?v=20261003_01';
 
 const root = document.getElementById('app');
 let dispose = null;
@@ -35,8 +35,15 @@ document.addEventListener('ip-blocked', (e) => {
     const me = await api('/api/auth/me');
     state.user = me?.user || null;
     state.branch = me?.activeBranch || null;
+    if (!state.user) {
+      localStorage.removeItem('scet_auth_token');
+      localStorage.removeItem('scet_branch_token');
+    }
     registerServiceWorker();
-  } catch { /* not logged in, or blocked (handled by ip-blocked) */ }
+  } catch {
+    localStorage.removeItem('scet_auth_token');
+    localStorage.removeItem('scet_branch_token');
+  }
 
   if (!document.querySelector('.blocked')) {
     // Wait for splash screen animation to run

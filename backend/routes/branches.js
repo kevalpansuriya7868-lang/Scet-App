@@ -70,7 +70,7 @@ router.post('/:code/unlock', unlockLimit, audited('BRANCH_UNLOCKED'), async (req
   const b = await getBranch(req.params.code);
   if (!(await verifySecret(String(req.body.password || ''), b.passwordHash))) throw httpErr(401, `Incorrect password for branch ${req.params.code}.`);
   const token = sign({ uid: req.user.uid, code: req.params.code, exp: Date.now() + cfg.sessionHours * 3600e3 }, cfg.sessionSecret);
-  res.cookie(BRANCH_COOKIE, token, cookieOpts).json({ ok: true });
+  res.cookie(BRANCH_COOKIE, token, cookieOpts).json({ ok: true, branchToken: token });
 });
 
 router.post('/:code/lock', (req, res) => {
@@ -84,10 +84,6 @@ router.post('/:code/otp', otpLimit, async (req, res) => {
   const b = await getBranch(req.params.code);
   const r = await issueOtp(req.params.code, purpose, b.recoveryEmail);
   const resp = { sentTo: mask(b.recoveryEmail) };
-  if (!cfg.isProd && r.devFallback) {
-    resp.devOtp = r.otp;
-    resp.smtpWarning = r.error;
-  }
   res.json(resp);
 });
 
