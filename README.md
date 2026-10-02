@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # SCET Lab Component & Issue Tracking System — Web Edition
 
 Node.js/Express API + vanilla-JS single-page frontend, Firebase (Cloud Firestore + Authentication).
@@ -50,3 +51,6 @@ admin management) with the admin's **username**, timestamp, action, branch, deta
 backend/  server.js config.js firebase.js  middleware/(ipGuard auth audit rateLimit)  routes/(auth catalog branches inventory issues reports student audit)  utils/
 frontend/ index.html css/styles.css js/(main api ui state) js/views/(auth student branches console inventory ledger tools audit shell) assets/
 ```
+=======
+# Scet-App
+>>>>>>> a04e654f6ce34c313662220dfca062bf5123a3cf
