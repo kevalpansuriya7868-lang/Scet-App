@@ -70,14 +70,34 @@ async function sendMail({ to, subject, text, attachments }) {
 
   if (process.env.HTTP_EMAIL_URL) {
     try {
+      const payload = {
+        to,
+        subject,
+        text,
+        attachments: attachments && Array.isArray(attachments)
+          ? attachments.map(a => ({
+              filename: a.filename,
+              content: Buffer.isBuffer(a.content) ? a.content.toString('base64') : (typeof a.content === 'string' ? a.content : '')
+            }))
+          : undefined
+      };
       const res = await fetch(process.env.HTTP_EMAIL_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ to, subject, text })
+        body: JSON.stringify(payload),
+        redirect: 'follow'
       });
-      if (res.ok) return { ok: true, provider: 'webhook' };
+      let json = null;
+      try { json = await res.json(); } catch { /* non-json */ }
+      if (res.ok && (!json || json.ok !== false)) {
+        return { ok: true, provider: 'google_script_webhook' };
+      }
+      if (json && json.error) {
+        console.warn('[HTTP Email Webhook Error]:', json.error);
+        return { ok: false, error: json.error };
+      }
     } catch (e) {
-      console.warn('[HTTP Email Webhook Error]:', e.message);
+      console.warn('[HTTP Email Webhook Network Error]:', e.message);
     }
   }
 
