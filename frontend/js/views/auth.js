@@ -2,7 +2,8 @@ import { api } from '../api.js';
 import { state, rerender } from '../state.js';
 import { h, fields, field, toast } from '../ui.js';
 
-const boards = ['esp32_devboard.png', 'hardware_uno.jpg', 'esp32_chip.png', 'circuit_board_module.png'];
+const ASSET_VER = '20261003_07';
+const boards = ['esp32_devboard.png', 'hardware_uno.png', 'esp32_chip.png', 'circuit_board_module.png'];
 
 export function authView() {
   let portal = null; // null = show chooser, 'student' | 'admin' = show login
@@ -992,10 +993,23 @@ export function authView() {
           ? 'Browse components, request hardware, track issues & returns — all in one place.'
           : 'Manage inventory, issue/return records, gate passes, fines & faculty accounts.'),
         h('div', { class: 'boards' },
-          boards.map((b, i) => h('img', {
-            src: `assets/${b}`, alt: '',
-            class: `board-img board-img-${i % 2 === 0 ? 'even' : 'odd'}`,
-          })),
+          boards.map((b, i) => {
+            const imgEl = h('img', {
+              src: `assets/${b}?v=${ASSET_VER}`,
+              alt: 'Lab hardware board',
+              class: `board-img board-img-${i % 2 === 0 ? 'even' : 'odd'}`,
+            });
+            imgEl.onerror = () => {
+              if (imgEl.src.includes('uno.png')) {
+                imgEl.src = `assets/hardware_uno.jpg?v=${ASSET_VER}`;
+              } else if (imgEl.src.includes('uno.jpg')) {
+                imgEl.src = `assets/hardware_rpi.png?v=${ASSET_VER}`;
+              } else {
+                imgEl.src = `assets/esp32_devboard.png?v=${ASSET_VER}`;
+              }
+            };
+            return imgEl;
+          }),
         ),
       ),
       h('section', { style: 'display:grid;padding:24px;place-items:center' }, card),
