@@ -46,6 +46,28 @@ router.get('/', async (req, res) => {
   res.json(list);
 });
 
+// GET /api/branches/:code/requests/:id/idcard
+router.get('/:id/idcard', async (req, res) => {
+  const snap = await db.doc(`requests/${req.params.id}`).get();
+  if (!snap.exists) throw httpErr(404, 'Request not found.');
+  const r = snap.data();
+  if (r.idCardImage) return res.json({ idCardImage: r.idCardImage, idCardVerified: r.idCardVerified !== false });
+  // Fallback to user doc if not stored directly on request
+  if (r.studentUid) {
+    const uSnap = await db.doc(`users/${r.studentUid}`).get();
+    if (uSnap.exists && uSnap.data().idCardImage) {
+      return res.json({ idCardImage: uSnap.data().idCardImage, idCardVerified: uSnap.data().idCardVerified !== false });
+    }
+  }
+  if (r.enrollmentNo) {
+    const uSnap = await db.collection('users').where('enrollmentNo', '==', r.enrollmentNo).limit(1).get();
+    if (!uSnap.empty && uSnap.docs[0].data().idCardImage) {
+      return res.json({ idCardImage: uSnap.docs[0].data().idCardImage, idCardVerified: uSnap.docs[0].data().idCardVerified !== false });
+    }
+  }
+  res.json({ idCardImage: null, idCardVerified: false });
+});
+
 // POST /api/branches/:code/requests/:id/accept (Step 2: Admin sets collection time slot)
 router.post('/:id/accept', audited('STUDENT_REQUEST_ACCEPTED'), async (req, res) => {
   const code = req.branch, id = req.params.id;

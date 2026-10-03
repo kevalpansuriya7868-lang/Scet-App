@@ -935,8 +935,91 @@ export async function ledgerTab(code) {
     }]);
   }
 
+  function showIdCardModal(imgSrc, studentName) {
+    if (!imgSrc) {
+      toast('No ID card image available.', 'err');
+      return;
+    }
+    const body = h('div', { style: 'text-align:center;padding:10px;' },
+      h('div', { style: 'background:#0f172a;border-radius:12px;padding:12px;display:inline-block;max-width:100%;box-shadow:0 8px 30px rgba(0,0,0,0.3);border:1px solid #334155;' },
+        h('img', {
+          src: imgSrc,
+          alt: `Student ID Card - ${studentName}`,
+          style: 'max-height:70vh;max-width:100%;border-radius:8px;object-fit:contain;display:block;margin:0 auto;'
+        })
+      ),
+      h('div', { style: 'margin-top:14px;display:flex;justify-content:center;gap:10px;align-items:center;flex-wrap:wrap;' },
+        h('span', { class: 'badge ok', style: 'font-size:0.85em;padding:4px 12px;' }, '✅ Official SCET ID Card Verified'),
+        h('button', {
+          type: 'button',
+          class: 'btn ghost sm',
+          onclick: () => {
+            const w = window.open();
+            if (w) {
+              w.document.write(`<img src="${imgSrc}" style="max-width:100%;height:auto;display:block;margin:20px auto;border-radius:8px;box-shadow:0 4px 20px rgba(0,0,0,0.2);">`);
+              w.document.title = `SCET ID Card - ${studentName}`;
+            }
+          }
+        }, '🔍 Open Full Resolution')
+      )
+    );
+
+    modal(`🪪 SCET ID Card — ${studentName}`, body, [{ label: 'Close', run: (close) => close() }], true);
+  }
+
   function viewRequestDetails(r) {
     const items = Array.isArray(r.items) && r.items.length > 0 ? r.items : [{ compId: r.compId, compName: r.compName, qty: r.qty || 1 }];
+
+    const idCardBox = h('div', { class: 'card', style: 'padding:14px;border:1px solid var(--line);border-radius:10px;background:#fff;margin:0' },
+      h('div', { style: 'display:flex;justify-content:space-between;align-items:center;margin-bottom:8px' },
+        h('h4', { style: 'margin:0;font-weight:800;font-size:0.95em;display:flex;align-items:center;gap:6px' }, '🪪 SCET Student ID Card'),
+        h('span', { class: 'badge sm ok' }, '✓ Official ID')
+      ),
+      h('div', { class: 'muted small' }, 'Loading ID card image...')
+    );
+
+    const loadIdCard = async () => {
+      let imgSrc = r.idCardImage;
+      if (!imgSrc) {
+        try {
+          const res = await api(`/api/branches/${code}/requests/${r.id}/idcard`);
+          if (res?.idCardImage) {
+            imgSrc = res.idCardImage;
+            r.idCardImage = imgSrc;
+          }
+        } catch {}
+      }
+      if (imgSrc) {
+        idCardBox.replaceChildren(
+          h('div', { style: 'display:flex;justify-content:space-between;align-items:center;margin-bottom:8px' },
+            h('h4', { style: 'margin:0;font-weight:800;font-size:0.95em;display:flex;align-items:center;gap:6px' }, '🪪 SCET Student ID Card'),
+            h('span', { class: 'badge sm ok' }, '✓ OCR Verified')
+          ),
+          h('div', {
+            style: 'text-align:center;background:#0f172a;border-radius:8px;padding:8px;position:relative;cursor:pointer',
+            title: 'Click to view high resolution',
+            onclick: () => showIdCardModal(imgSrc, r.studentName)
+          },
+            h('img', {
+              src: imgSrc,
+              alt: `ID Card - ${r.studentName}`,
+              style: 'max-height:220px;max-width:100%;border-radius:6px;object-fit:contain;display:block;margin:0 auto;'
+            }),
+            h('div', { class: 'muted small', style: 'color:#94a3b8;font-size:0.75em;margin-top:6px' }, '🔍 Click image to enlarge')
+          )
+        );
+      } else {
+        idCardBox.replaceChildren(
+          h('div', { style: 'display:flex;justify-content:space-between;align-items:center;' },
+            h('h4', { style: 'margin:0;font-weight:800;font-size:0.95em;display:flex;align-items:center;gap:6px' }, '🪪 SCET Student ID Card'),
+            h('span', { class: 'badge sm warn' }, 'No Image on File')
+          ),
+          h('div', { class: 'muted small', style: 'margin-top:4px' }, 'No ID card photo on file for this record.')
+        );
+      }
+    };
+    loadIdCard();
+
     const body = h('div', { class: 'stack', style: 'gap:14px;font-size:15px;line-height:1.5' },
       h('div', { style: 'background:var(--soft);padding:14px;border-radius:12px;border:1px solid var(--line)' },
         h('div', { style: 'font-size:1.2em;font-weight:800;color:var(--ink)' }, r.studentName),
@@ -947,6 +1030,7 @@ export async function ledgerTab(code) {
           r.studentEmail && h('span', { class: 'muted small' }, `✉️ ${r.studentEmail}`)
         )
       ),
+      idCardBox,
       h('div', { class: 'card', style: 'padding:14px;border:1px solid var(--line);border-radius:10px;background:#fff;margin:0' },
         h('h4', { style: 'margin:0 0 8px 0;font-weight:800' }, 'Requested Components'),
         ...items.map((it) => h('div', { style: 'display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--line)' },
@@ -1096,6 +1180,28 @@ export async function ledgerTab(code) {
           style: 'font-weight:700',
           onclick: () => viewRequestDetails(r)
         }, '🔍 Details'),
+        h('button', {
+          class: 'btn ghost sm',
+          style: 'font-weight:700',
+          title: 'View Verified SCET ID Card',
+          onclick: async () => {
+            if (r.idCardImage) {
+              showIdCardModal(r.idCardImage, r.studentName);
+            } else {
+              try {
+                const res = await api(`/api/branches/${code}/requests/${r.id}/idcard`);
+                if (res?.idCardImage) {
+                  r.idCardImage = res.idCardImage;
+                  showIdCardModal(res.idCardImage, r.studentName);
+                } else {
+                  toast('No ID card photo on file for this student.', 'err');
+                }
+              } catch (err) {
+                toast(err.message || 'Could not load student ID card.', 'err');
+              }
+            }
+          }
+        }, '🪪 ID Card'),
         r.status === 'PENDING' && h('button', {
           class: 'btn green sm',
           style: 'font-weight:700',

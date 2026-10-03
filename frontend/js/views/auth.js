@@ -195,7 +195,274 @@ export function authView() {
         type: 'submit'
       }, '🚀 Send Verification Code →');
 
+      // ID Card state for students (Compulsory)
+      let idCardDataUrl = saved.idCardImage || null;
+      let idCardApproved = !!saved.idCardImage;
+      let isScanningIdCard = false;
+      let idCardError = null;
+      let idCardSection = null;
+
+      if (isStudent) {
+        const fileInput = h('input', {
+          type: 'file',
+          accept: 'image/*',
+          id: 'scet-id-file-input',
+          style: 'display:none'
+        });
+
+        const cameraInput = h('input', {
+          type: 'file',
+          accept: 'image/*',
+          capture: 'environment',
+          id: 'scet-id-camera-input',
+          style: 'display:none'
+        });
+
+        const statusBanner = h('div', { class: 'id-card-result-banner', style: 'display:none' });
+        const previewContainer = h('div', { class: 'id-card-preview-frame', style: 'display:none' });
+        const imgPreview = h('img', { class: 'id-card-img-preview', alt: 'SCET ID Card Preview' });
+        const scanLaser = h('div', { class: 'id-card-scan-laser', style: 'display:none' });
+        const scanBadge = h('div', { class: 'id-card-scan-badge', style: 'display:none' },
+          h('div', { class: 'id-card-scan-spinner' }),
+          h('span', { class: 'scan-badge-label' }, '🔍 Scanning SCET ID Card (OCR)...')
+        );
+
+        const previewBar = h('div', { class: 'id-card-preview-bar' },
+          h('span', { style: 'font-weight:600' }, '🪪 Uploaded ID Card'),
+          h('button', {
+            type: 'button',
+            class: 'id-card-reupload-btn',
+            onclick: () => fileInput.click()
+          }, '🔄 Change Photo')
+        );
+
+        previewContainer.replaceChildren(imgPreview, scanLaser, scanBadge, previewBar);
+
+        const dropzone = h('div', {
+          class: 'id-card-dropzone',
+          onclick: (e) => {
+            if (e.target.tagName !== 'BUTTON') fileInput.click();
+          }
+        },
+          h('span', { class: 'id-card-dropzone-icon' }, '🪪'),
+          h('div', { class: 'id-card-dropzone-primary-text' }, 'Upload or Photograph Your SCET ID Card'),
+          h('div', { class: 'id-card-dropzone-subtext' }, 'Compulsory: Official SCET logo/header is required. System will verify your card and auto-fill your details.'),
+          h('div', { class: 'id-card-dropzone-actions' },
+            h('button', {
+              type: 'button',
+              class: 'btn ghost id-card-action-btn',
+              onclick: (e) => { e.stopPropagation(); cameraInput.click(); }
+            }, '📸 Camera'),
+            h('button', {
+              type: 'button',
+              class: 'btn primary id-card-action-btn',
+              onclick: (e) => { e.stopPropagation(); fileInput.click(); }
+            }, '📁 Choose Image')
+          )
+        );
+
+        // Drag and drop support
+        dropzone.ondragover = (e) => { e.preventDefault(); dropzone.parentElement.classList.add('dragover'); };
+        dropzone.ondragleave = () => { dropzone.parentElement.classList.remove('dragover'); };
+        dropzone.ondrop = (e) => {
+          e.preventDefault();
+          dropzone.parentElement.classList.remove('dragover');
+          if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+            handleFile(e.dataTransfer.files[0]);
+          }
+        };
+
+        fileInput.onchange = (e) => {
+          if (e.target.files && e.target.files[0]) {
+            handleFile(e.target.files[0]);
+          }
+        };
+
+        cameraInput.onchange = (e) => {
+          if (e.target.files && e.target.files[0]) {
+            handleFile(e.target.files[0]);
+          }
+        };
+
+        function updateUi() {
+          if (idCardDataUrl) {
+            imgPreview.src = idCardDataUrl;
+            dropzone.style.display = 'none';
+            previewContainer.style.display = 'block';
+
+            if (isScanningIdCard) {
+              previewContainer.classList.add('scanning');
+              scanLaser.style.display = 'block';
+              scanBadge.style.display = 'flex';
+              statusBanner.style.display = 'none';
+            } else {
+              previewContainer.classList.remove('scanning');
+              scanLaser.style.display = 'none';
+              scanBadge.style.display = 'none';
+
+              if (idCardApproved) {
+                statusBanner.className = 'id-card-result-banner success';
+                statusBanner.style.display = 'flex';
+                statusBanner.innerHTML = `
+                  <div style="font-size:1.2rem;line-height:1">✅</div>
+                  <div>
+                    <strong>Official SCET Student ID Verified!</strong>
+                    <div style="font-size:0.8rem;color:#065f46;margin-top:2px;">
+                      Official SCET header detected. Details have been auto-filled below.
+                    </div>
+                  </div>
+                `;
+              } else if (idCardError) {
+                statusBanner.className = 'id-card-result-banner error';
+                statusBanner.style.display = 'flex';
+                statusBanner.innerHTML = `
+                  <div style="font-size:1.2rem;line-height:1">❌</div>
+                  <div>
+                    <strong>ID Card Not Approved</strong>
+                    <div style="font-size:0.8rem;color:#991b1b;margin-top:2px;">
+                      ${idCardError}
+                    </div>
+                  </div>
+                `;
+              } else {
+                statusBanner.style.display = 'none';
+              }
+            }
+          } else {
+            dropzone.style.display = 'block';
+            previewContainer.style.display = 'none';
+            statusBanner.style.display = 'none';
+          }
+        }
+
+        async function handleFile(file) {
+          if (!file.type.startsWith('image/')) {
+            toast('Please upload a valid image file (PNG, JPG, JPEG).', 'err');
+            return;
+          }
+
+          try {
+            isScanningIdCard = true;
+            idCardApproved = false;
+            idCardError = null;
+            submitBtn.disabled = true;
+            submitBtn.innerText = 'Scanning SCET ID Card...';
+
+            // Compress to maximum 800px width/height to keep Firestore payload lightweight
+            const compressedBase64 = await compressImage(file, 800, 0.82);
+            idCardDataUrl = compressedBase64;
+            updateUi();
+
+            // Run OCR via Tesseract.js
+            let extractedText = '';
+            if (window.Tesseract && typeof window.Tesseract.recognize === 'function') {
+              const ocrRes = await window.Tesseract.recognize(compressedBase64, 'eng', {
+                logger: (m) => {
+                  if (m.status === 'recognizing text' && typeof m.progress === 'number') {
+                    const pct = Math.round(m.progress * 100);
+                    const labelEl = scanBadge.querySelector('.scan-badge-label');
+                    if (labelEl) labelEl.textContent = `🔍 Reading SCET ID Card (${pct}%)...`;
+                  }
+                }
+              });
+              extractedText = ocrRes?.data?.text || '';
+            }
+
+            // SCET Header & Identity Verification
+            const upper = extractedText.toUpperCase();
+            const hasScetHeader =
+              upper.includes('SCET') ||
+              upper.includes('SARVAJANIK') ||
+              (upper.includes('ENGINEERING') && (upper.includes('TECHNOLOGY') || upper.includes('COLLEGE') || upper.includes('SURAT'))) ||
+              upper.includes('SARVAJANIK UNIVERSITY');
+
+            if (!hasScetHeader) {
+              idCardApproved = false;
+              idCardError = 'Official SCET logo/header was not detected in this image. Please upload a clear, genuine photo of your official SCET student ID card.';
+              toast('❌ ID Card Not Approved: Official SCET header not detected.', 'err');
+            } else {
+              idCardApproved = true;
+              idCardError = null;
+
+              // Auto-fill extracted details:
+              // 1. Enrollment Number (ET... or 12-14 digits)
+              const enMatch =
+                upper.match(/\b(ET\d{2}[A-Z]{2,4}\d{2,4})\b/) ||
+                upper.match(/\b(\d{12,14})\b/) ||
+                upper.match(/(?:ENROLLMENT|ENROLMENT|ROLL|REG(?:ISTRATION)?)\s*(?:NO|NUM|NUMBER)?[:.\s-]*([A-Z0-9]{8,16})/);
+              if (enMatch && enMatch[1]) {
+                idInput.value = enMatch[1].trim();
+                idInput.classList.add('autofilled-pulse');
+                setTimeout(() => idInput.classList.remove('autofilled-pulse'), 2000);
+              }
+
+              // 2. Branch / Department
+              let detectedBranch = '';
+              if (/COMPUTER|COMP\b|C\.O\./.test(upper)) detectedBranch = 'CO';
+              else if (/INFORMATION\s*TECH|INFO\s*TECH|\bIT\b/.test(upper)) detectedBranch = 'IT';
+              else if (/ELECTRONICS\s*&\s*COMM|ELECTRONICS|E\.C\./.test(upper)) detectedBranch = 'EC';
+              else if (/ELECTRICAL|E\.E\./.test(upper)) detectedBranch = 'EE';
+              else if (/MECHANICAL|M\.E\./.test(upper)) detectedBranch = 'ME';
+              else if (/CIVIL|C\.L\./.test(upper)) detectedBranch = 'CL';
+              else if (/CHEMICAL|C\.H\./.test(upper)) detectedBranch = 'CH';
+              else if (/ARTIFICIAL\s*INTELLIGENCE|\bAI\b/.test(upper)) detectedBranch = 'AI';
+
+              if (detectedBranch) {
+                branchInput.value = detectedBranch;
+                branchInput.classList.add('autofilled-pulse');
+                setTimeout(() => branchInput.classList.remove('autofilled-pulse'), 2000);
+              }
+
+              // 3. Name
+              const nameMatch = extractedText.match(/(?:Name|Student Name)\s*[:.\s-]+([A-Za-z\s]{3,35})/i);
+              if (nameMatch && nameMatch[1]) {
+                const parsedName = nameMatch[1].replace(/[\r\n]+/g, ' ').trim();
+                if (parsedName.length > 2 && !/^(STUDENT|COLLEGE|SCET|ENGINEERING|TECHNOLOGY)/i.test(parsedName)) {
+                  fullNameInput.value = parsedName;
+                  fullNameInput.classList.add('autofilled-pulse');
+                  setTimeout(() => fullNameInput.classList.remove('autofilled-pulse'), 2000);
+                }
+              }
+
+              toast('✅ Official SCET ID Card Verified! Details auto-filled.', 'ok');
+            }
+          } catch (err) {
+            console.error('ID Card scan failed:', err);
+            idCardApproved = false;
+            idCardError = 'Error processing ID card image. Please ensure photo is well-lit and clear.';
+            toast(idCardError, 'err');
+          } finally {
+            isScanningIdCard = false;
+            submitBtn.disabled = false;
+            submitBtn.innerText = '🚀 Send Verification Code →';
+            updateUi();
+          }
+        }
+
+        idCardSection = h('div', { class: 'id-card-section' },
+          h('div', { class: 'id-card-header' },
+            h('div', { class: 'id-card-title-wrap' },
+              h('span', { class: 'id-card-title-icon' }, '🪪'),
+              h('h3', { class: 'id-card-title' }, 'College ID Card Verification')
+            ),
+            h('span', { class: 'id-card-compulsory-badge' }, '⚠️ Compulsory')
+          ),
+          fileInput,
+          cameraInput,
+          dropzone,
+          previewContainer,
+          statusBanner
+        );
+
+        if (idCardDataUrl) {
+          updateUi();
+        }
+      }
+
       const formElements = [];
+      if (isStudent && idCardSection) {
+        formElements.push(idCardSection);
+      }
       if (!isStudent) {
         formElements.push(
           field('Master Admin ID', masterUserInput),
@@ -226,6 +493,19 @@ export function authView() {
           }
           if (!masterPassword) {
             return toast('⚠️ Master Admin password is required (e.g. admin123).', 'err');
+          }
+        }
+
+        // Compulsory Student ID Card Verification check
+        if (isStudent) {
+          if (!idCardDataUrl) {
+            return toast('⚠️ Uploading your official SCET ID Card is compulsory for registration.', 'err');
+          }
+          if (isScanningIdCard) {
+            return toast('⏳ Please wait, your SCET ID Card is still being scanned...', 'warn');
+          }
+          if (!idCardApproved) {
+            return toast('❌ ID Card Not Approved: Official SCET logo/header must be detected.', 'err');
           }
         }
 
@@ -273,7 +553,7 @@ export function authView() {
           email,
           password,
           ...(isStudent
-            ? { enrollmentNo: rawId.toUpperCase() }
+            ? { enrollmentNo: rawId.toUpperCase(), idCardImage: idCardDataUrl }
             : { username: rawId.toLowerCase(), masterUsername, masterPassword }
           )
         };
@@ -288,9 +568,9 @@ export function authView() {
             const enrollmentNo = rawId.toUpperCase();
             otpRes = await api('/api/auth/signup/student/send-otp', {
               method: 'POST',
-              body: { fullName, enrollmentNo, branch, mobile, email }
+              body: { fullName, enrollmentNo, branch, mobile, email, idCardImage: idCardDataUrl }
             });
-            pendingSignup = { portal: 'student', fullName, enrollmentNo, branch, mobile, email, password };
+            pendingSignup = { portal: 'student', fullName, enrollmentNo, branch, mobile, email, password, idCardImage: idCardDataUrl };
           } else {
             const username = rawId.toLowerCase();
             otpRes = await api('/api/auth/signup/admin/send-otp', {
@@ -303,7 +583,6 @@ export function authView() {
           toast(otpRes?.message || `✅ Verification code sent! Please check your ${email} inbox.`);
           go('otp');
         } catch (err) {
-          // Exact notifications from backend (e.g. "An account with this email address already exists.")
           toast(err.message || 'Unable to send verification code. Please check your details.', 'err');
         } finally {
           submitBtn.disabled = false;
@@ -463,7 +742,7 @@ export function authView() {
         try {
           const endpoint = isStudent ? '/api/auth/signup/student/send-otp' : '/api/auth/signup/admin/send-otp';
           const body = isStudent
-            ? { fullName: pendingSignup.fullName, enrollmentNo: pendingSignup.enrollmentNo, branch: pendingSignup.branch, mobile: pendingSignup.mobile, email: pendingSignup.email }
+            ? { fullName: pendingSignup.fullName, enrollmentNo: pendingSignup.enrollmentNo, branch: pendingSignup.branch, mobile: pendingSignup.mobile, email: pendingSignup.email, idCardImage: pendingSignup.idCardImage }
             : { masterUsername: pendingSignup.masterUsername, masterPassword: pendingSignup.masterPassword, fullName: pendingSignup.fullName, username: pendingSignup.username, branch: pendingSignup.branch, mobile: pendingSignup.mobile, email: pendingSignup.email };
 
           const res = await api(endpoint, { method: 'POST', body });
@@ -734,4 +1013,37 @@ function createConfettiBurst() {
   document.body.appendChild(container);
   setTimeout(() => container.remove(), 1600);
 }
+
+// ──────────── CLIENT-SIDE IMAGE COMPRESSION (CANVAS) ────────────
+function compressImage(file, maxDimension = 800, quality = 0.82) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = reject;
+    reader.onload = () => {
+      const img = new Image();
+      img.onerror = reject;
+      img.onload = () => {
+        let { width, height } = img;
+        if (width > maxDimension || height > maxDimension) {
+          if (width > height) {
+            height = Math.round((height * maxDimension) / width);
+            width = maxDimension;
+          } else {
+            width = Math.round((width * maxDimension) / height);
+            height = maxDimension;
+          }
+        }
+        const canvas = document.createElement('canvas');
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0, width, height);
+        resolve(canvas.toDataURL('image/jpeg', quality));
+      };
+      img.src = reader.result;
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
 

@@ -85,6 +85,8 @@ router.post('/requests', async (req, res) => {
     status: 'PENDING',
     createdAt: FieldValue.serverTimestamp(),
     studentUid: req.user.uid,
+    idCardImage: u.idCardImage || '',
+    idCardVerified: !!u.idCardVerified,
   };
 
   const docRef = await db.collection('requests').add(reqDoc);

@@ -44,6 +44,9 @@ router.post('/signup/student/send-otp', signupLimit, async (req, res) => {
 
   if (!enrollmentNo) throw httpErr(400, 'Enrollment number is required.');
   if (!fullName) throw httpErr(400, 'Full name is required.');
+  if (!b.idCardImage || typeof b.idCardImage !== 'string' || !b.idCardImage.startsWith('data:image/')) {
+    throw httpErr(400, 'Official SCET College ID card image is compulsory for student registration. Please upload your ID card.');
+  }
   if (!email) throw httpErr(400, 'Email address is required.');
   if (!EMAIL_RE.test(email)) throw httpErr(400, 'Please enter a valid email address.');
   if (!email.endsWith('@scet.ac.in')) throw httpErr(400, 'Only official @scet.ac.in email addresses are permitted for student accounts.');
@@ -111,6 +114,11 @@ router.post('/signup/student', signupLimit, async (req, res) => {
   const enrollmentNo = clean(b.enrollmentNo).toUpperCase();
   const p = { displayName: clean(b.fullName), enrollmentNo, branch: clean(b.branch), mobile: clean(b.mobile), email: clean(b.email).toLowerCase() };
   if (!enrollmentNo || !p.displayName || !p.branch) throw httpErr(400, 'Enrollment number, full name and branch are required.');
+  if (!b.idCardImage || typeof b.idCardImage !== 'string' || !b.idCardImage.startsWith('data:image/')) {
+    throw httpErr(400, 'Official SCET College ID card image is compulsory for student registration. Please upload your ID card.');
+  }
+  p.idCardImage = b.idCardImage;
+  p.idCardVerified = true;
   if (!/^\d{10}$/.test(p.mobile)) throw httpErr(400, 'Mobile must be exactly 10 digits.');
   if (!EMAIL_RE.test(p.email)) throw httpErr(400, 'Enter a valid email address.');
   if (!p.email.endsWith('@scet.ac.in')) throw httpErr(400, 'Only @scet.ac.in email addresses are permitted for student accounts.');
