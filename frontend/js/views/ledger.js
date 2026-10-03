@@ -838,23 +838,12 @@ export async function ledgerTab(code) {
       h('div', { class: 'field' },
         h('span', {}, 'Additional Instructions / Notes (Optional):'),
         noteInput
-      ),
-      h('div', {
-        style: 'background:rgba(5,150,105,0.08);border:1.5px solid var(--green);border-radius:8px;padding:12px 14px;display:flex;align-items:flex-start;gap:12px'
-      },
-        h('span', { style: 'font-size:1.6em;line-height:1' }, '📲'),
-        h('div', { style: 'font-size:0.88em;line-height:1.45' },
-          h('div', { style: 'font-weight:800;color:var(--green);margin-bottom:2px' }, 'Automated Mobile & WhatsApp Notification:'),
-          `When you click Confirm, the system automatically dispatches a push notification to the student's mobile phone`,
-          r.studentMobile ? ` and an automated WhatsApp alert to +91 ${r.studentMobile}` : '',
-          `. Pickup time and location will be sent directly to the student.`
-        )
       )
     );
 
     const modalActions = [
       {
-        label: '✓ Confirm & Dispatch Alerts',
+        label: '✓ Confirm Acceptance',
         cls: 'green',
         run: async (close) => {
           const collectionTime = timeInput.value.trim();
@@ -862,12 +851,11 @@ export async function ledgerTab(code) {
           const collectionLocation = locationInput.value.trim() || 'Hardware Lab Counter';
           const collectionNote = noteInput.value.trim();
 
-          const res = await api(`/api/branches/${code}/requests/${r.id}/accept`, {
+          await api(`/api/branches/${code}/requests/${r.id}/accept`, {
             method: 'POST',
             body: { collectionTime, collectionLocation, collectionNote }
           });
-          const pushCount = res.push?.sent || 0;
-          toast(`✓ Request accepted! Mobile push alert and automated WhatsApp notification dispatched to ${r.studentMobile || r.studentName}.`, 'ok');
+          toast('✓ Request accepted! Confirmation email sent to student.', 'ok');
           close();
           await loadRequests();
         }
@@ -1123,25 +1111,6 @@ export async function ledgerTab(code) {
           title: 'Student is at counter: 1-click stock deduction and gatepass generation',
           onclick: () => oneClickIssue(r)
         }, '⚡ One-Click Issue'),
-        r.status === 'ACCEPTED' && h('button', {
-          class: 'btn ghost sm',
-          style: 'color:var(--green);font-weight:700',
-          title: 'Resend automated mobile push notification and WhatsApp alert to student',
-          onclick: async (e) => {
-            const btn = e.currentTarget;
-            btn.disabled = true;
-            btn.textContent = 'Sending…';
-            try {
-              await api(`/api/branches/${code}/requests/${r.id}/notify`, { method: 'POST' });
-              toast('✓ Automated mobile notification & WhatsApp dispatched to student!', 'ok');
-            } catch (err) {
-              toast('Failed to resend: ' + err.message, 'err');
-            } finally {
-              btn.disabled = false;
-              btn.textContent = '🔔 Resend Alert';
-            }
-          }
-        }, '🔔 Resend Alert'),
         r.status === 'ACCEPTED' && h('button', {
           class: 'btn ghost sm',
           title: 'Modify collection time slot',

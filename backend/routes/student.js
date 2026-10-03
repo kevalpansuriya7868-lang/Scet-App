@@ -3,13 +3,6 @@ const { db, FieldValue } = require('../firebase');
 const { httpErr, clean } = require('../utils/http');
 const { present, gatePassNo } = require('../utils/issues');
 const pdf = require('../utils/pdf');
-const {
-  getPublicKey,
-  saveSubscription,
-  removeSubscription,
-  sendTestNotification,
-  getSubscriptionsForStudent,
-} = require('../utils/notifier');
 
 // A student's username IS their (lower-cased) enrollment number, set at sign-up.
 const enrollment = (req) => req.user.username.toUpperCase();
@@ -98,108 +91,6 @@ router.post('/requests', async (req, res) => {
   res.status(201).json({ ok: true, id: docRef.id, request: { id: docRef.id, ...reqDoc } });
 });
 
-/* ---------- Push Notifications for Student Device/Phone ---------- */
-
-// GET /api/me/push-key - VAPID public key for web push subscription
-router.get('/push-key', async (req, res) => {
-  const publicKey = await getPublicKey();
-  res.json({ publicKey });
-});
-
-// GET /api/me/push-status - Check if this student has active push subscriptions
-router.get('/push-status', async (req, res) => {
-  const en = enrollment(req);
-  const uSnap = await db.doc(`users/${req.user.uid}`).get();
-  const u = uSnap.exists ? uSnap.data() : {};
-  const mobile = u.mobile || '';
-  const notificationsEnabled = u.notificationsEnabled !== false;
-  const subs = await getSubscriptionsForStudent(en, req.user.uid, mobile);
-  res.json({
-    subscribed: subs.length > 0 && notificationsEnabled,
-    notificationsEnabled,
-    mobile: mobile || '',
-    devicesCount: subs.length,
-    devices: subs.map(s => ({
-      id: s.id,
-      deviceType: s.deviceType,
-      updatedAt: s.updatedAt,
-      userAgent: s.userAgent,
-    })),
-  });
-});
-
-// POST /api/me/push-subscribe - Register Web Push Subscription
-router.post('/push-subscribe', async (req, res) => {
-  const { subscription, deviceType } = req.body || {};
-  if (!subscription || !subscription.endpoint || !subscription.keys) {
-    throw httpErr(400, 'Valid subscription object is required.');
-  }
-  const en = enrollment(req);
-  const uSnap = await db.doc(`users/${req.user.uid}`).get();
-  const u = uSnap.exists ? uSnap.data() : {};
-  const mobile = u.mobile || '';
-
-  await db.doc(`users/${req.user.uid}`).set({
-    notificationsEnabled: true,
-    notificationsUpdatedAt: FieldValue.serverTimestamp(),
-  }, { merge: true });
-
-  const result = await saveSubscription({
-    uid: req.user.uid,
-    enrollmentNo: en,
-    mobile,
-    subscription,
-    userAgent: req.headers['user-agent'] || '',
-    deviceType: deviceType || 'mobile',
-  });
-  res.json(result);
-});
-
-// POST /api/me/push-unsubscribe - Remove subscription
-router.post('/push-unsubscribe', async (req, res) => {
-  const { endpoint } = req.body || {};
-  await removeSubscription(endpoint);
-  await db.doc(`users/${req.user.uid}`).set({
-    notificationsEnabled: false,
-    notificationsUpdatedAt: FieldValue.serverTimestamp(),
-  }, { merge: true });
-  res.json({ ok: true });
-});
-
-// POST /api/me/notification-toggle - Toggle mobile notification preference
-router.post('/notification-toggle', async (req, res) => {
-  const enabled = Boolean(req.body.enabled);
-  await db.doc(`users/${req.user.uid}`).set({
-    notificationsEnabled: enabled,
-    notificationsUpdatedAt: FieldValue.serverTimestamp(),
-  }, { merge: true });
-  res.json({ ok: true, enabled });
-});
-
-// POST /api/me/push-test - Send immediate test alert to phone
-router.post('/push-test', async (req, res) => {
-  const en = enrollment(req);
-  const result = await sendTestNotification({
-    enrollmentNo: en,
-    uid: req.user.uid,
-  });
-  res.json(result);
-});
-
-// GET /api/me/notifications - Recent in-app notifications
-router.get('/notifications', async (req, res) => {
-  const en = enrollment(req);
-  const snap = await db.collection('notifications')
-    .where('enrollmentNo', '==', en)
-    .get();
-  const list = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-  list.sort((a, b) => {
-    const ta = a.createdAt?.toMillis ? a.createdAt.toMillis() : (a.createdAt ? new Date(a.createdAt).getTime() : 0);
-    const tb = b.createdAt?.toMillis ? b.createdAt.toMillis() : (b.createdAt ? new Date(b.createdAt).getTime() : 0);
-    return tb - ta;
-  });
-  res.json(list.slice(0, 30));
-});
 
 // GET /api/me/profile - Fetch student profile
 router.get('/profile', async (req, res) => {

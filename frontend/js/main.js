@@ -5,7 +5,6 @@ import { authView } from './views/auth.js';
 import { studentView } from './views/student.js';
 import { branchView } from './views/branches.js';
 import { consoleView } from './views/console.js';
-import { registerServiceWorker } from './notifications.js';
 
 const root = document.getElementById('app');
 let dispose = null;
@@ -53,7 +52,6 @@ document.addEventListener('ip-blocked', (e) => {
     state.user = null;
     state.branch = null;
   }
-  registerServiceWorker();
 
   if (!document.querySelector('.blocked')) {
     // Wait for splash screen animation to run

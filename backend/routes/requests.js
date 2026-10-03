@@ -6,11 +6,6 @@ const { gatePassNo } = require('../utils/issues');
 const { sendMail, templates } = require('../utils/mailer');
 const pdf = require('../utils/pdf');
 const { audited } = require('../middleware/audit');
-const {
-  notifyStudentRequestAccepted,
-  notifyStudentRequestIssued,
-  notifyStudentRequestRejected,
-} = require('../utils/notifier');
 
 const cRef = (code, id) => db.doc(`components/${code}__${id}`);
 const stock = (qty) => ({ issuedQty: FieldValue.increment(qty), availableQty: FieldValue.increment(-qty), updatedAt: FieldValue.serverTimestamp() });
@@ -75,19 +70,6 @@ router.post('/:id/accept', audited('STUDENT_REQUEST_ACCEPTED'), async (req, res)
     acceptedAt: Timestamp.now(),
   });
 
-  let pushResult = { sent: 0 };
-  try {
-    pushResult = await notifyStudentRequestAccepted({
-      request: { id, ...data },
-      collectionTime,
-      collectionLocation,
-      collectionNote,
-      acceptedBy: req.user.username,
-    });
-  } catch (pushErr) {
-    console.error('[Accept Request] Push notification error:', pushErr.message);
-  }
-
   const studentEmail = data.studentEmail;
   if (studentEmail && templates.requestAccepted) {
     try {
@@ -97,8 +79,8 @@ router.post('/:id/accept', audited('STUDENT_REQUEST_ACCEPTED'), async (req, res)
     }
   }
 
-  res.locals.auditDetail = `Accepted request #${id} for ${data.enrollmentNo}; collection time: ${collectionTime}; location: ${collectionLocation} (${pushResult.sent || 0} phone push sent)`;
-  res.json({ ok: true, collectionTime, collectionLocation, collectionNote, push: pushResult });
+  res.locals.auditDetail = `Accepted request #${id} for ${data.enrollmentNo}; collection time: ${collectionTime}; location: ${collectionLocation}`;
+  res.json({ ok: true, collectionTime, collectionLocation, collectionNote });
 });
 
 // POST /api/branches/:code/requests/:id/issue (Step 3: ⚡ ONE-CLICK ISSUE)
@@ -183,16 +165,6 @@ router.post('/:id/issue', audited('ITEM_ISSUED'), async (req, res) => {
     });
   });
 
-  const gp = gatePassNo(issueRecord);
-  try {
-    await notifyStudentRequestIssued({
-      request: { id, ...issueRecord },
-      issueRecord,
-      gatePassNo: gp,
-    });
-  } catch (err) {
-    console.error('[Issue Request] Push notification error:', err.message);
-  }
 
   const mail = await mailProof(issueRecord, templates.issued(issueRecord), 'GatePass');
   const itemsSummary = issueRecord.items.map(it => `${it.qty} x ${it.compName || it.compId} (${it.compId})`).join(', ');
@@ -219,14 +191,6 @@ router.post('/:id/reject', audited('STUDENT_REQUEST_REJECTED'), async (req, res)
     rejectedAt: Timestamp.now()
   });
 
-  try {
-    await notifyStudentRequestRejected({
-      request: { id, ...data },
-      reason,
-    });
-  } catch (err) {
-    console.error('[Reject Request] Push notification error:', err.message);
-  }
 
   if (data.studentEmail && templates.requestRejected) {
     try {
@@ -238,26 +202,6 @@ router.post('/:id/reject', audited('STUDENT_REQUEST_REJECTED'), async (req, res)
 
   res.locals.auditDetail = `Rejected request #${id} for ${data.enrollmentNo}: ${reason}`;
   res.json({ ok: true });
-});
-
-// POST /api/branches/:code/requests/:id/notify - Re-dispatch automated mobile notification & WhatsApp alert
-router.post('/:id/notify', audited('REQUEST_NOTIFICATION_RESENT'), async (req, res) => {
-  const code = req.branch, id = req.params.id;
-  const ref = db.doc(`requests/${id}`);
-  const snap = await ref.get();
-  if (!snap.exists) throw httpErr(404, 'Request not found.');
-  const data = snap.data();
-  if (data.branchCode !== code) throw httpErr(403, 'Permission denied.');
-
-  const result = await notifyStudentRequestAccepted({
-    request: { id, ...data },
-    collectionTime: data.collectionTime || 'Today during lab hours',
-    collectionNote: data.collectionNote || '',
-    acceptedBy: req.user.username,
-  });
-
-  res.locals.auditDetail = `Dispatched automated mobile notification & WhatsApp to ${data.studentMobile || data.enrollmentNo} for request #${id}`;
-  res.json({ ok: true, result });
 });
 
 module.exports = router;

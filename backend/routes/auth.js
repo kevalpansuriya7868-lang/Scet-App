@@ -7,7 +7,6 @@ const { COOKIE, BRANCH_COOKIE, cookieOpts, requireRole, activeBranch } = require
 const { audited, writeAudit } = require('../middleware/audit');
 const rateLimit = require('../middleware/rateLimit');
 const { sendMail, templates } = require('../utils/mailer');
-const { sendAutomatedWhatsApp } = require('../utils/whatsapp');
 
 const USERNAME_RE = /^[a-z0-9._-]{3,32}$/;
 const EMAIL_RE = /^[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+$/;
@@ -95,18 +94,6 @@ router.post('/signup/student/send-otp', signupLimit, async (req, res) => {
     mailResult = { ok: false, error: err.message };
   }
 
-  // Also dispatch automated WhatsApp / mobile notification if mobile provided
-  if (mobile) {
-    sendAutomatedWhatsApp({
-      to: mobile,
-      studentName: fullName,
-      reqId: 'OTP',
-      time: 'Valid for 5 minutes',
-      note: `Your SCET Student Verification Code is: ${otp}`,
-      itemsSummary: `Student OTP: ${otp}`,
-      type: 'OTP_VERIFICATION'
-    }).catch(e => console.warn('[OTP WhatsApp dispatch error]:', e.message));
-  }
 
   if (!mailResult.ok) {
     throw httpErr(500, `Failed to send verification email to ${email}: ${mailResult.error || 'Connection error'}. Please check your email and try again.`);
@@ -250,18 +237,6 @@ router.post('/signup/admin/send-otp', signupLimit, async (req, res) => {
     mailResult = { ok: false, error: err.message };
   }
 
-  // Also dispatch automated WhatsApp / mobile notification if mobile provided
-  if (mobile) {
-    sendAutomatedWhatsApp({
-      to: mobile,
-      studentName: fullName,
-      reqId: 'OTP',
-      time: 'Valid for 5 minutes',
-      note: `Your SCET Faculty Verification Code is: ${otp}`,
-      itemsSummary: `Faculty OTP: ${otp}`,
-      type: 'OTP_VERIFICATION'
-    }).catch(e => console.warn('[Admin OTP WhatsApp dispatch error]:', e.message));
-  }
 
   if (!mailResult.ok) {
     throw httpErr(500, `Failed to send verification email to ${email}: ${mailResult.error || 'Connection error'}. Please check your email and try again.`);

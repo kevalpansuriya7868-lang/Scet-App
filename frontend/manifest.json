@@ -1,7 +1,7 @@
 {
   "name": "SCET Lab Component & Request Portal",
   "short_name": "SCET Lab",
-  "description": "Hardware catalogue, issue ledger, and real-time request tracking with instant phone notifications for SCET students and faculty.",
+  "description": "Hardware catalogue, issue ledger, and real-time request tracking for SCET students and faculty.",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#F1F5F9",

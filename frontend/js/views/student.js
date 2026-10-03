@@ -2,72 +2,6 @@ import { api, openFile } from '../api.js';
 import { state, rerender } from '../state.js';
 import { h, modal, fmt, rupees, badge, table, toast, field } from '../ui.js';
 import { shell } from './shell.js';
-import {
-  getNotificationPermission,
-  enablePushNotifications,
-  disablePushNotifications,
-  isPushSubscribed,
-  testPushNotification,
-  playChime,
-} from '../notifications.js';
-
-/**
- * Creates a reactive one-click toggle button:
- * "🔔 Allow Notification on Mobile No." <---> "🔕 Deny Notification on Mobile No."
- */
-export function makeNotificationToggleButton(onToggle) {
-  const btn = h('button', {
-    type: 'button',
-    class: 'btn sm',
-    style: 'font-weight:700;display:inline-flex;align-items:center;gap:6px;border-radius:8px;transition:all .15s ease'
-  });
-
-  async function sync() {
-    const isSub = await isPushSubscribed();
-    if (isSub) {
-      btn.className = 'btn ghost sm';
-      btn.style.color = '#dc2626';
-      btn.style.borderColor = '#dc2626';
-      btn.style.background = 'rgba(220,38,38,0.06)';
-      btn.textContent = '🔕 Deny Notification on Mobile No.';
-      btn.title = 'Click to deny/turn off notifications on mobile number';
-    } else {
-      btn.className = 'btn green sm';
-      btn.style.color = '#fff';
-      btn.style.borderColor = 'transparent';
-      btn.style.background = '#059669';
-      btn.style.boxShadow = '0 2px 8px rgba(5,150,105,0.25)';
-      btn.textContent = '🔔 Allow Notification on Mobile No.';
-      btn.title = 'Click once to allow notifications on your mobile number when requests are accepted';
-    }
-  }
-
-  btn.onclick = async () => {
-    btn.disabled = true;
-    try {
-      const isSub = await isPushSubscribed();
-      if (isSub) {
-        btn.textContent = 'Disabling…';
-        await disablePushNotifications();
-        toast('🔕 Notification permission denied/disabled for mobile.');
-      } else {
-        btn.textContent = 'Enabling…';
-        await enablePushNotifications();
-        toast('🔔 Notifications allowed on mobile! You will receive instant alerts when your requests are accepted.', 'ok');
-      }
-      await sync();
-      onToggle?.();
-    } catch (err) {
-      toast(err.message, 'err');
-      await sync();
-    } finally {
-      btn.disabled = false;
-    }
-  };
-
-  sync();
-  return { el: btn, sync };
-}
 
 /** Full-screen lightbox (shared) */
 function lightbox(src, alt) {
@@ -100,9 +34,6 @@ export async function studentView() {
   let activeViewCleanup = null;
   const tabs = h('div', { class: 'tabs' });
 
-  const notifToggle = makeNotificationToggleButton(() => {
-    if (tab === 'requests' || tab === 'profile') draw();
-  });
 
   const draw = async () => {
     if (activeViewCleanup) { activeViewCleanup(); activeViewCleanup = null; }
@@ -114,7 +45,6 @@ export async function studentView() {
     ].map(([k, t]) =>
       h('button', { class: `tab${tab === k ? ' on' : ''}`, onclick: () => { tab = k; draw(); } }, t)));
 
-    notifToggle.sync();
 
     if (tab === 'catalog') {
       body.replaceChildren(await catalog(onSwitchToRequests));
@@ -152,7 +82,7 @@ export async function studentView() {
     style: 'display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;flex-wrap:wrap;gap:10px'
   },
     tabs,
-    h('div', { style: 'display:flex;align-items:center;gap:8px;flex-wrap:wrap;' }, notifToggle.el, exitBtn)
+    exitBtn
   );
 
   const shellEl = shell('Student portal', navRow, body);
@@ -457,16 +387,7 @@ async function myRequests(refresh) {
         // Detect newly accepted requests
         for (const req of data) {
           if (req.status === 'ACCEPTED' && !knownAcceptedIds.has(req.id)) {
-            playChime('accepted');
             toast(`🎉 Request #${req.id.slice(-6)} has been ACCEPTED! Pickup slot: ${req.collectionTime}`);
-            if (window.Notification && Notification.permission === 'granted') {
-              try {
-                new Notification('🎉 Hardware Request Approved!', {
-                  body: `Pickup slot: ${req.collectionTime}. Please bring your College ID to the lab counter.`,
-                  icon: '/assets/logo-footer.png',
-                });
-              } catch { /* ignore */ }
-            }
             break;
           }
         }
@@ -480,53 +401,6 @@ async function myRequests(refresh) {
     }
   }
 
-  function renderNotifBanner() {
-    const banner = h('div', { class: 'notif-banner active' });
-    const toggle = makeNotificationToggleButton(() => {
-      loadPushInfo();
-      render();
-    });
-
-    const testBtn = h('button', {
-      class: 'btn ghost sm',
-      style: 'font-weight:700;display:inline-flex;align-items:center;gap:6px',
-      onclick: async () => {
-        testBtn.disabled = true;
-        testBtn.textContent = 'Sending…';
-        try {
-          await testPushNotification();
-          toast('🔔 Test notification sent directly to your phone!', 'ok');
-        } catch (e) {
-          toast('Test failed: ' + e.message, 'err');
-        } finally {
-          testBtn.disabled = false;
-          testBtn.textContent = '🔔 Test Phone Alert';
-        }
-      }
-    }, '🔔 Test Phone Alert');
-
-    banner.append(
-      h('div', { style: 'display:flex;align-items:center;gap:14px;flex:1;min-width:240px' },
-        h('div', { class: 'notif-icon', style: 'color:var(--green)' }, '📱'),
-        h('div', {},
-          h('div', { style: 'font-weight:800;font-size:0.95em;color:var(--ink);display:flex;align-items:center;gap:6px;flex-wrap:wrap' },
-            h('span', { class: 'pulse-dot' }),
-            'Mobile Phone Notifications Setting',
-            pushInfo?.mobile ? h('span', { class: 'badge sm ok', style: 'font-size:0.8em;font-weight:700' }, `📱 +91 ${pushInfo.mobile}`) : null
-          ),
-          h('div', { class: 'muted small', style: 'font-size:0.8em;margin-top:2px' },
-            'Click below to allow or deny mobile alerts. When allowed, you receive instant notifications on your phone whenever faculty approves your request.'
-          )
-        )
-      ),
-      h('div', { style: 'display:flex;align-items:center;gap:8px;flex-wrap:wrap' },
-        toggle.el,
-        testBtn
-      )
-    );
-
-    return banner;
-  }
 
   function renderPickupHero(acceptedRequests) {
     if (!acceptedRequests.length) return null;
@@ -588,7 +462,7 @@ async function myRequests(refresh) {
     },
       h('div', {},
         h('h3', { style: 'margin:0;font-size:1.35em;font-weight:800;color:var(--ink)' }, 'My Hardware Requests'),
-        h('span', { class: 'muted small' }, 'Track components, live phone notifications, collection slots & gate passes')
+        h('span', { class: 'muted small' }, 'Track components, collection slots & gate passes')
       ),
       h('button', {
         class: 'btn gold',
@@ -653,7 +527,7 @@ async function myRequests(refresh) {
         h('div', { style: 'font-size:2.5em;margin-bottom:12px' }, '📦'),
         h('h4', { style: 'margin:0 0 6px 0;font-weight:700' }, 'No Hardware Requests Yet'),
         h('p', { class: 'muted', style: 'max-width:440px;margin:0 auto 16px auto;font-size:0.92em' },
-          'You can request components in advance for lab sessions and student projects. Faculty will assign a collection time slot and send a notification directly to your phone.'
+          'You can request components in advance for lab sessions and student projects. Faculty will assign a collection time slot.'
         ),
         h('button', {
           class: 'btn primary',
@@ -721,7 +595,7 @@ async function myRequests(refresh) {
         } else if (r.status === 'PENDING') {
           statusCell = h('div', { style: 'display:flex;flex-direction:column;gap:4px;align-items:flex-start' },
             badge('⏳ AWAITING FACULTY APPROVAL', 'warn'),
-            h('span', { class: 'muted small', style: 'font-size:0.75em' }, 'Phone notification will be sent once approved'),
+            h('span', { class: 'muted small', style: 'font-size:0.75em' }, 'Approval updates will be sent to your registered email'),
             stepTrack
           );
         } else if (r.status === 'ISSUED') {
@@ -778,7 +652,6 @@ async function myRequests(refresh) {
 
     container.replaceChildren(
       header,
-      renderNotifBanner(),
       heroCard || '',
       stats,
       filterBar,
@@ -876,19 +749,6 @@ async function myProfile() {
       style: 'background:rgba(15,118,110,0.08); border:1px solid rgba(15,118,110,0.25); border-radius:8px; padding:12px 14px; font-size:13px; color:var(--teal-d); line-height:1.45;'
     }, '🔒 Official Record Policy: Your Enrollment Number and institutional @scet.ac.in Email are permanently locked to preserve laboratory tracking and gate pass audit integrity. Other details can be updated below anytime.'),
 
-    h('div', {
-      style: 'background:rgba(5,150,105,0.06); border:1.5px solid rgba(5,150,105,0.25); border-radius:10px; padding:14px 16px; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px'
-    },
-      h('div', {},
-        h('div', { style: 'font-weight:800; font-size:0.95em; color:var(--ink); display:flex; align-items:center; gap:6px' },
-          '📱 Mobile Number Notifications'
-        ),
-        h('div', { class: 'muted small', style: 'font-size:0.82em; margin-top:2px' },
-          p.mobile ? `Alerts dispatched to +91 ${p.mobile} upon hardware approval` : 'Connect mobile alerts for hardware collection slots'
-        )
-      ),
-      makeNotificationToggleButton().el
-    ),
 
     h('form', { class: 'stack', style: 'gap:14px;' },
       field('Enrollment number (Login ID - Locked)', enInput),
