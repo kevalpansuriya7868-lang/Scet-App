@@ -371,9 +371,9 @@ export function authView() {
               img.src = base64Image;
             });
 
-            // If height > width (portrait photo of landscape card), test 0, 270, 90, 180
-            // If width >= height (landscape photo), test 0, 180, 270, 90
-            const angles = dims.h > dims.w ? [0, 270, 90, 180] : [0, 180, 270, 90];
+            // If height > width (portrait photo of landscape card), test 0, 90, 270, 180
+            // If width >= height (landscape photo), test 0, 90, 180, 270
+            const angles = dims.h > dims.w ? [0, 90, 270, 180] : [0, 90, 180, 270];
             let successfulExtraction = null;
 
             for (let a = 0; a < angles.length; a++) {
@@ -1110,26 +1110,38 @@ function rotateImageDataUrl(dataUrl, degrees = 90) {
 function verifyScetIdCard(rawText) {
   const upper = (rawText || '').toUpperCase();
 
-  // 1. Institutional Title Check
-  const hasSarvajanik = upper.includes('SARVAJANIK') || upper.includes('SCET');
-  const hasCollegeOrTech =
-    upper.includes('COLLEGE') ||
-    upper.includes('ENGINEERING') ||
-    upper.includes('TECHNOLOGY') ||
-    upper.includes('UNIVERSITY') ||
-    upper.includes('SURAT');
-  const hasInstitution = hasSarvajanik && hasCollegeOrTech;
+  // 1. SCET Unique Enrollment Number Pattern Check
+  // SCET Sarvajanik University: ET + 2 digits + 2-4 branch letters + digits (e.g. ET25BTCO177)
+  // SCET GTU code: 2 digits + 042 (SCET college code) + digits (e.g. 200420107001)
+  const scetEnRegex = /\b(ET\d{2}[A-Z]{2,4}\d{2,4})\b/i;
+  const scetEnGeneralRegex = /\b(ET\d{2}[A-Z0-9]{4,9})\b/i;
+  const gtuScetRegex = /\b(\d{2}042\d{7,9})\b/;
+  const scetEnMatch = upper.match(scetEnRegex) || upper.match(scetEnGeneralRegex) || upper.match(gtuScetRegex);
+  const hasScetEnrollment = !!scetEnMatch;
 
-  // 2. ID Card Format Structural Markers Check
+  // 2. SCET Institutional Title / Keyword Check
+  // Note: On physical cards, dark-green header text may OCR with noise; institutional markers and address tokens verify identity
+  const hasInstitution =
+    upper.includes('SARVAJANIK') ||
+    upper.includes('SCET') ||
+    upper.includes('STET') || // Common OCR artifact for SCET font
+    upper.includes('SURAT') ||
+    upper.includes('ATHWALINES') ||
+    upper.includes('ATHWA') ||
+    upper.includes('DESAI') ||
+    (upper.includes('ENGINEERING') && (upper.includes('COLLEGE') || upper.includes('TECHNOLOGY') || upper.includes('PROGRAM')));
+
+  // 3. ID Card Format Structural Markers Check
   const hasEnrollmentLabel =
     upper.includes('ENROLLMENT') ||
     upper.includes('ENROLMENT') ||
     upper.includes('ROLL') ||
-    /\bET\d{2}[A-Z]{2,4}\d{2,4}\b/.test(upper);
+    hasScetEnrollment;
   const hasProgramLabel =
     upper.includes('PROGRAM') ||
     upper.includes('BRANCH') ||
     upper.includes('COMPUTER') ||
+    upper.includes('ENGINEERING') ||
     upper.includes('COURSE');
   const hasNameLabel = upper.includes('NAME') || upper.includes('STUDENT');
   const hasBloodOrEmergency =
@@ -1144,45 +1156,56 @@ function verifyScetIdCard(rawText) {
     (hasNameLabel ? 1 : 0) +
     (hasBloodOrEmergency ? 1 : 0);
 
-  // Must have official institution header AND at least two structural markers
-  const isScetApproved = hasInstitution && structuralScore >= 2;
+  // Must have SCET Enrollment OR SCET Institution header, AND at least 2 structural markers
+  const isScetApproved = (hasScetEnrollment || hasInstitution) && structuralScore >= 2;
 
-  // 3. Extract Name
+  // 4. Extract Name
   let studentName = '';
-  const nameMatch = rawText.match(/(?:Name|Student\s*Name)\s*[:.\s-]+([A-Za-z\s]{3,40})/i);
+  let nameMatch = rawText.match(/(?:Name|Student\s*Name|Nam|Nme)\s*[:.\s\-|]+\s*([A-Za-z\s]{3,40})/i);
+  if (!nameMatch) {
+    nameMatch = rawText.match(/(?:Name|Student\s*Name|Nam|Nme)\s*[:.\s\-|]*[\r\n]+\s*([A-Za-z\s]{3,40})/i);
+  }
   if (nameMatch && nameMatch[1]) {
-    const cleanName = nameMatch[1].replace(/[\r\n]+/g, ' ').replace(/\s{2,}/g, ' ').trim();
+    let cleanName = nameMatch[1].replace(/[\r\n]+/g, ' ').replace(/\s{2,}/g, ' ').trim();
+    cleanName = cleanName.split(/\b(?:Program|Enrollment|Blood|Emergency|Department|Branch)\b/i)[0].trim();
     if (cleanName.length > 2 && !/^(STUDENT|COLLEGE|SCET|ENGINEERING|TECHNOLOGY|SARVAJANIK|UNIVERSITY)/i.test(cleanName)) {
       studentName = cleanName;
     }
   }
 
-  // 4. Extract Enrollment Number
+  // 5. Extract Enrollment Number
   let enrollmentNo = '';
-  const enLabelMatch = upper.match(/(?:ENROLLMENT|ENROLMENT|ROLL|REG(?:ISTRATION)?)\s*(?:NO|NUM|NUMBER)?\.?\s*[:.\s-]+([A-Z0-9]{8,18})/);
-  const enRegexMatch = upper.match(/\b(ET\d{2}[A-Z]{2,4}\d{2,4})\b/) || upper.match(/\b(\d{12,14})\b/);
-  if (enLabelMatch && enLabelMatch[1]) {
-    enrollmentNo = enLabelMatch[1].replace(/[^A-Z0-9]/g, '').trim();
-  } else if (enRegexMatch && enRegexMatch[1]) {
-    enrollmentNo = enRegexMatch[1].trim();
+  if (scetEnMatch && scetEnMatch[1]) {
+    enrollmentNo = scetEnMatch[1].trim().toUpperCase();
+  } else {
+    const enLabelMatch = upper.match(/(?:ENROLLMENT|ENROLMENT|ROLL|REG(?:ISTRATION)?)\s*(?:NO|NUM|NUMBER)?\.?\s*[:.\s\-|]*\s*([A-Z0-9]{8,18})/);
+    if (enLabelMatch && enLabelMatch[1]) {
+      enrollmentNo = enLabelMatch[1].replace(/[^A-Z0-9]/g, '').trim().toUpperCase();
+    }
   }
 
-  // 5. Extract Branch / Department
+  // 6. Extract Branch / Department
   let branch = '';
-  const progMatch = upper.match(/(?:PROGRAM|BRANCH|DEPT|DEPARTMENT)\s*[:.\s-]+([A-Z\s&]{2,40})/);
+  const progMatch = upper.match(/(?:PROGRAM|BRANCH|DEPT|DEPARTMENT)\s*[:.\s\-|]*\s*([A-Z\s&]{2,40})/);
   const progText = progMatch ? progMatch[1] : upper;
 
-  if (/COMPUTER|COMP\b|C\.O\./.test(progText)) branch = 'CO';
-  else if (/INFORMATION\s*TECH|INFO\s*TECH|\bIT\b/.test(progText)) branch = 'IT';
-  else if (/ELECTRONICS\s*&\s*COMM|ELECTRONICS|E\.C\./.test(progText)) branch = 'EC';
-  else if (/ELECTRICAL|E\.E\./.test(progText)) branch = 'EE';
-  else if (/MECHANICAL|M\.E\./.test(progText)) branch = 'ME';
-  else if (/CIVIL|C\.L\./.test(progText)) branch = 'CL';
-  else if (/CHEMICAL|C\.H\./.test(progText)) branch = 'CH';
-  else if (/ARTIFICIAL\s*INTELLIGENCE|\bAI\b/.test(progText)) branch = 'AI';
+  if (/COMPUTER|COMP\b|C\.O\./i.test(progText)) branch = 'CO';
+  else if (/INFORMATION\s*TECH|INFO\s*TECH|\bIT\b/i.test(progText)) branch = 'IT';
+  else if (/ELECTRONICS\s*&\s*COMM|ELECTRONICS|E\.C\./i.test(progText)) branch = 'EC';
+  else if (/ELECTRICAL|E\.E\./i.test(progText)) branch = 'EE';
+  else if (/MECHANICAL|M\.E\./i.test(progText)) branch = 'ME';
+  else if (/CIVIL|C\.L\./i.test(progText)) branch = 'CL';
+  else if (/CHEMICAL|C\.H\./i.test(progText)) branch = 'CH';
+  else if (/ARTIFICIAL\s*INTELLIGENCE|\bAI\b/i.test(progText)) branch = 'AI';
+  else if (/INSTRUMENTATION|I\.C\./i.test(progText)) branch = 'IC';
   else if (enrollmentNo) {
-    const enBranchMatch = enrollmentNo.match(/ET\d{2}[A-Z]{0,2}([A-Z]{2})/);
-    if (enBranchMatch) branch = enBranchMatch[1];
+    const enBranchMatch = enrollmentNo.match(/ET\d{2}[A-Z]{0,2}([A-Z]{2})/i);
+    if (enBranchMatch) {
+      const code = enBranchMatch[1].toUpperCase();
+      if (['CO', 'IT', 'EC', 'EE', 'ME', 'CL', 'CH', 'AI', 'IC', 'TT'].includes(code)) {
+        branch = code;
+      }
+    }
   }
 
   return {
@@ -1191,6 +1214,7 @@ function verifyScetIdCard(rawText) {
     enrollmentNo,
     branch,
     hasInstitution,
+    hasScetEnrollment,
     structuralScore
   };
 }
