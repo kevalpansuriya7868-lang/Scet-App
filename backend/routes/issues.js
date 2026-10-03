@@ -416,6 +416,44 @@ router.post('/check-reminders', async (req, res) => {
   }
 });
 
+/* Students listing and lookup for branch issue form */
+students.get('/', async (req, res) => {
+  const s = await db.collection('users').where('role', '==', 'student').get();
+  res.json(s.docs.map((d) => {
+    const data = d.data();
+    return {
+      enrollmentNo: (data.enrollmentNo || data.username || '').toUpperCase(),
+      displayName: data.displayName || data.fullName || '',
+      branch: data.branch || '',
+      mobile: data.mobile || '',
+      email: data.email || '',
+    };
+  }));
+});
+
+students.get('/:enroll/info', async (req, res) => {
+  const q = clean(req.params.enroll).toUpperCase();
+  let s = await db.collection('users')
+    .where('role', '==', 'student')
+    .where('enrollmentNo', '==', q)
+    .limit(1).get();
+  if (s.empty) {
+    s = await db.collection('users')
+      .where('role', '==', 'student')
+      .where('username', '==', q.toLowerCase())
+      .limit(1).get();
+  }
+  if (s.empty) throw httpErr(404, `Student "${q}" not found.`);
+  const data = s.docs[0].data();
+  res.json({
+    enrollmentNo: (data.enrollmentNo || data.username || '').toUpperCase(),
+    displayName: data.displayName || data.fullName || '',
+    branch: data.branch || '',
+    mobile: data.mobile || '',
+    email: data.email || '',
+  });
+});
+
 /* No-dues clearance: ?check=1 returns JSON eligibility, otherwise the certificate PDF. */
 students.get('/:enroll/no-dues', audited('NO_DUES_CERTIFICATE'), async (req, res) => {
   const code = req.branch, enroll = clean(req.params.enroll).toUpperCase();

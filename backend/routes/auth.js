@@ -355,6 +355,70 @@ router.get('/admins', requireRole('admin'), async (req, res) => {
   res.json(s.docs.map((d) => ({ username: d.data().username, displayName: d.data().displayName, isActive: d.data().isActive, email: d.data().email || '' })));
 });
 
+/* ---------- Students list & lookup (accessible by logged-in admin) ---------- */
+router.get('/students', async (req, res) => {
+  if (!req.user || req.user.role !== 'admin') {
+    throw httpErr(403, 'Admin access required to view student accounts.');
+  }
+  const s = await db.collection('users').where('role', '==', 'student').get();
+  res.json(s.docs.map((d) => {
+    const data = d.data();
+    return {
+      enrollmentNo: (data.enrollmentNo || data.username || '').toUpperCase(),
+      displayName: data.displayName || data.fullName || '',
+      branch: data.branch || '',
+      mobile: data.mobile || '',
+      email: data.email || '',
+      isActive: data.isActive !== false,
+    };
+  }));
+});
+
+router.get('/students/:enrollment', async (req, res) => {
+  if (!req.user || req.user.role !== 'admin') {
+    throw httpErr(403, 'Admin access required to view student accounts.');
+  }
+  const q = clean(req.params.enrollment).toUpperCase();
+  let s = await db.collection('users')
+    .where('role', '==', 'student')
+    .where('enrollmentNo', '==', q)
+    .limit(1).get();
+  if (s.empty) {
+    s = await db.collection('users')
+      .where('role', '==', 'student')
+      .where('username', '==', q.toLowerCase())
+      .limit(1).get();
+  }
+  if (s.empty) {
+    const all = await db.collection('users').where('role', '==', 'student').get();
+    const doc = all.docs.find(d => {
+      const data = d.data();
+      return (data.enrollmentNo && data.enrollmentNo.toUpperCase() === q) ||
+             (data.username && data.username.toUpperCase() === q);
+    });
+    if (doc) {
+      const data = doc.data();
+      return res.json({
+        enrollmentNo: (data.enrollmentNo || data.username || '').toUpperCase(),
+        displayName: data.displayName || data.fullName || '',
+        branch: data.branch || '',
+        mobile: data.mobile || '',
+        email: data.email || '',
+      });
+    }
+    throw httpErr(404, `Student "${q}" not found.`);
+  }
+  const data = s.docs[0].data();
+  res.json({
+    enrollmentNo: (data.enrollmentNo || data.username || '').toUpperCase(),
+    displayName: data.displayName || data.fullName || '',
+    branch: data.branch || '',
+    mobile: data.mobile || '',
+    email: data.email || '',
+  });
+});
+
+
 router.post('/admins', requireRole('admin'), audited('ADMIN_ACCOUNT_CREATED'), async (req, res) => {
   const b = req.body || {};
   const email = clean(b.email || '');

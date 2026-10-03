@@ -301,7 +301,11 @@ export async function ledgerTab(code) {
   async function issueForm(rec) {
     const comps = await api(`/api/catalog/${code}/components`);
     let allStudents = [];
-    try { allStudents = await api('/api/auth/students'); } catch { /* not admin */ }
+    try {
+      allStudents = await api('/api/auth/students');
+    } catch {
+      try { allStudents = await api(`/api/branches/${code}/students`); } catch { /* not admin */ }
+    }
 
     // ── Student fields ────────────────────────────────────────────────────────
     const enrollEl  = h('input', { value: rec?.enrollmentNo || '', placeholder: 'Type enrollment number to search student…' });
@@ -337,10 +341,32 @@ export async function ledgerTab(code) {
       if (!val) { enrollDropdown.style.display = 'none'; enrollDropdown.replaceChildren(); enrollHint.textContent = ''; return; }
       const exact = allStudents.find((s) => s.enrollmentNo?.toUpperCase() === val.toUpperCase());
       if (exact) { fillStudent(exact); return; }
-      debounce = setTimeout(() => {
+      debounce = setTimeout(async () => {
         const q = val.toLowerCase();
-        const matches = allStudents.filter((s) => s.enrollmentNo?.toLowerCase().includes(q) || s.displayName?.toLowerCase().includes(q));
+        let matches = allStudents.filter((s) => s.enrollmentNo?.toLowerCase().includes(q) || s.displayName?.toLowerCase().includes(q));
         if (!matches.length) {
+          // Direct server lookup fallback by enrollment number
+          try {
+            const found = await api(`/api/auth/students/${encodeURIComponent(val.toUpperCase())}`);
+            if (found && found.enrollmentNo && enrollEl.value.trim().toUpperCase() === val.toUpperCase()) {
+              if (!allStudents.some(s => s.enrollmentNo?.toUpperCase() === found.enrollmentNo.toUpperCase())) {
+                allStudents.push(found);
+              }
+              fillStudent(found);
+              return;
+            }
+          } catch {
+            try {
+              const found = await api(`/api/branches/${code}/students/${encodeURIComponent(val.toUpperCase())}/info`);
+              if (found && found.enrollmentNo && enrollEl.value.trim().toUpperCase() === val.toUpperCase()) {
+                if (!allStudents.some(s => s.enrollmentNo?.toUpperCase() === found.enrollmentNo.toUpperCase())) {
+                  allStudents.push(found);
+                }
+                fillStudent(found);
+                return;
+              }
+            } catch {}
+          }
           enrollHint.textContent = '❌ No registered student found — fill manually if needed.';
           enrollHint.style.color = 'var(--orange, #f97316)';
           enrollDropdown.style.display = 'none';
@@ -359,6 +385,20 @@ export async function ledgerTab(code) {
         );
         enrollDropdown.style.display = 'block';
       }, 200);
+    };
+
+    enrollEl.onchange = async () => {
+      const val = enrollEl.value.trim().toUpperCase();
+      if (!val) return;
+      const exact = allStudents.find((s) => s.enrollmentNo?.toUpperCase() === val);
+      if (exact) { fillStudent(exact); return; }
+      try {
+        const found = await api(`/api/auth/students/${encodeURIComponent(val)}`);
+        if (found && found.enrollmentNo) {
+          allStudents.push(found);
+          fillStudent(found);
+        }
+      } catch {}
     };
 
     enrollEl.onblur = () => setTimeout(() => {
