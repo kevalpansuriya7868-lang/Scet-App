@@ -191,7 +191,6 @@ export async function requestAuditTab(code) {
     const heads = [
       'Decision',
       'Action Taken By (Who)',
-      'Date & Time (When)',
       'Pickup Time & Location Given / Denial Reason',
       'Student Recipient',
       'Components Requested',
@@ -219,13 +218,6 @@ export async function requestAuditTab(code) {
           style: 'background:#e0f2fe;color:#0369a1;padding:3px 9px;border-radius:6px;font-weight:700;font-size:0.85em;font-family:monospace'
         }, byWhom),
         h('div', { class: 'muted small', style: 'font-size:0.75em;margin-top:3px' }, 'Faculty Admin')
-      );
-
-      // When Cell
-      const whenTs = isAccepted ? (r.acceptedAt || r.createdAt) : (r.rejectedAt || r.createdAt);
-      const whenCell = h('div', { style: 'font-size:0.88em;white-space:nowrap' },
-        h('div', { style: 'font-weight:600;color:var(--ink)' }, fmt(whenTs)),
-        h('div', { class: 'muted small', style: 'font-size:0.75em' }, `ID: #${r.id.slice(-6)}`)
       );
 
       // What Time and Location Given Cell
@@ -279,7 +271,6 @@ export async function requestAuditTab(code) {
       return h('tr', {},
         h('td', {}, decisionBadge),
         h('td', {}, whoCell),
-        h('td', {}, whenCell),
         h('td', {}, decisionDetailsCell),
         h('td', {}, studentCell),
         h('td', {}, compsCell),

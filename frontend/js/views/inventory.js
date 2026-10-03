@@ -590,11 +590,58 @@ export async function inventoryTab(code) {
         h('button', { class: 'btn danger sm', onclick: () => remove(c) }, 'Delete')))));
   };
 
-  function edit(c) {
     const f = fields([
       { name: 'name', label: 'Component name', value: c?.name }, { name: 'category', label: 'Category', value: c?.category },
-      { name: 'specifications', label: 'Specifications', value: c?.specifications }, { name: 'totalQty', label: 'Total quantity', type: 'number', min: 1, value: c?.totalQty },
+      { name: 'specifications', label: 'Specifications (e.g. 32-bit, 5V, 0-32°C)', value: c?.specifications }, { name: 'totalQty', label: 'Total quantity', type: 'number', min: 1, value: c?.totalQty },
     ]);
+
+    // Quick specification options (Bits, Temperature ranges, Voltage, Communication)
+    const specOptions = [
+      { label: '32-bit', val: '32-bit' },
+      { label: '8-bit', val: '8-bit' },
+      { label: '64-bit', val: '64-bit' },
+      { label: '16-bit', val: '16-bit' },
+      { label: '0-32°C', val: '0-32°C' },
+      { label: '0-50°C', val: '0-50°C' },
+      { label: '-40°C to 85°C', val: '-40°C to 85°C' },
+      { label: '3.3V', val: '3.3V' },
+      { label: '5V', val: '5V' },
+      { label: '12V', val: '12V' },
+      { label: 'I2C / SPI', val: 'I2C / SPI' },
+      { label: 'UART', val: 'UART' },
+    ];
+
+    const specChipsWrap = h('div', { style: 'margin-top:6px;display:flex;flex-direction:column;gap:5px' },
+      h('div', { style: 'display:flex;align-items:center;justify-content:space-between' },
+        h('span', { style: 'font-size:0.75em;color:var(--muted,#777);font-weight:600' }, '💡 Click to add specification options:'),
+        h('button', {
+          type: 'button',
+          class: 'btn ghost sm',
+          style: 'padding:1px 6px;font-size:0.7em;height:auto',
+          onclick: () => { f.refs.specifications.value = ''; }
+        }, '✕ Clear')
+      ),
+      h('div', { style: 'display:flex;flex-wrap:wrap;gap:5px' },
+        ...specOptions.map(opt => h('button', {
+          type: 'button',
+          class: 'chip',
+          style: 'cursor:pointer;font-size:0.78em;padding:3px 8px;border:1px solid #d0d7de;background:#f6f8fa;border-radius:14px;color:var(--ink,#222);transition:all 0.15s ease',
+          onmouseover: (e) => { e.currentTarget.style.background = '#e8f0fe'; e.currentTarget.style.borderColor = '#1a73e8'; },
+          onmouseout: (e) => { e.currentTarget.style.background = '#f6f8fa'; e.currentTarget.style.borderColor = '#d0d7de'; },
+          onclick: () => {
+            const cur = (f.refs.specifications.value || '').trim();
+            if (!cur) {
+              f.refs.specifications.value = opt.val;
+            } else if (!cur.toLowerCase().includes(opt.val.toLowerCase())) {
+              f.refs.specifications.value = `${cur}, ${opt.val}`;
+            }
+          }
+        }, `+ ${opt.label}`))
+      )
+    );
+    if (f.refs.specifications && f.refs.specifications.parentElement) {
+      f.refs.specifications.parentElement.appendChild(specChipsWrap);
+    }
 
     // ── Smart Web Auto-fill & Image Gallery ──────────────────────────────────
     let imgs = [];
@@ -737,7 +784,6 @@ export async function inventoryTab(code) {
         // Check if there is a known variant or family
         if (variant) {
           f.refs.name.value = variant.name;
-          f.refs.specifications.value = variant.specifications || '';
           cat = variant.category || 'Board';
           f.refs.category.value = cat;
 
@@ -759,7 +805,6 @@ export async function inventoryTab(code) {
               if (exact) {
                 variant = exact;
                 f.refs.name.value = exact.name;
-                f.refs.specifications.value = exact.specifications || '';
                 cat = exact.category || 'Board';
                 f.refs.category.value = cat;
                 break;
@@ -770,11 +815,6 @@ export async function inventoryTab(code) {
           if (!variant) {
             const page = await fetchWikiSummary(title);
             f.refs.name.value = page.title || title;
-            const spec = (page.extract_html
-              ? page.extract_html.replace(/<[^>]+>/g, ' ')
-              : page.extract || ''
-            ).replace(/\s+/g, ' ').trim().slice(0, 400);
-            f.refs.specifications.value = spec;
             cat = guessCategory(page.title, page.extract || '', page.description || '');
             f.refs.category.value = cat;
           }
@@ -904,7 +944,7 @@ export async function inventoryTab(code) {
           resultsBox,
         ),
         h('p', { style: 'font-size:0.75em;color:var(--muted,#888);margin:2px 0 0' },
-          'Type to search — name, category & image are filled automatically from Wikipedia'),
+          'Type to search — name, category & photos are filled automatically (specifications can be entered or selected below)'),
         versionsBar,
       ),
     );

@@ -1395,6 +1395,8 @@ export async function ledgerTab(code) {
   });
 
   await Promise.all([load(), loadRequests()]);
+  // Automatically check and deliver any pending 1-day deadline reminders and alerts
+  api('/api/issues/check-reminders', { method: 'POST' }).catch(() => {});
   const timer = setInterval(() => ticks.forEach((f) => f()), 1000);
   return {
     dispose: () => {

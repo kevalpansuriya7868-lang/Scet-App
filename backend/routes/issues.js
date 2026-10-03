@@ -405,6 +405,17 @@ router.post('/reminders/send', audited('OVERDUE_REMINDERS_SENT'), async (req, re
   res.json({ queued: late.length });
 });
 
+/* Trigger deadline and overdue reminder checks (runs 1-day before due and overdue alerts) */
+router.post('/check-reminders', async (req, res) => {
+  try {
+    const { runDailyAlerts } = require('../utils/scheduler');
+    const result = await runDailyAlerts();
+    res.json({ ok: true, result });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
 /* No-dues clearance: ?check=1 returns JSON eligibility, otherwise the certificate PDF. */
 students.get('/:enroll/no-dues', audited('NO_DUES_CERTIFICATE'), async (req, res) => {
   const code = req.branch, enroll = clean(req.params.enroll).toUpperCase();

@@ -187,12 +187,12 @@ const templates = {
     text: `Dear ${i.studentName},\n\n${GREET}\n\nThis is an automated reminder about an OVERDUE checkout:\n\n  Enrollment No   : ${i.enrollmentNo}\n\nItems Overdue:\n${formatItems(i)}\n\n  Scheduled Return: ${fmt(toDateObj(i.dueDate))}\n  Days Overdue    : ${daysLate}\n  Current Penalty : Rs.${fine} (accruing at Rs.${cfg.finePerDay}/day)\n\nPlease return all items to Department ${i.branchCode} immediately to avoid examination hold and semester clearance suspension.\n\n${SIGN}`,
   }),
   deadline: (i) => ({
-    subject: `Reminder: Lab Hardware Return Due Tomorrow - SCET [${gatePassNo(i)}]`,
-    text: `Dear ${i.studentName},\n\n${GREET}\n\nThis is a friendly reminder that your borrowed lab hardware is due for return TOMORROW (by 4:00 PM):\n\n  Transaction Pass : ${gatePassNo(i)}\n  Enrollment No   : ${i.enrollmentNo}\n\nItems to Return:\n${formatItems(i)}\n\n  Return Due Time : ${fmt(toDateObj(i.dueDate))}\n  Late Return Fine: Rs.${cfg.finePerDay} / day after due time\n\nPlease return all items to Department ${i.branchCode} on time to avoid penalty.\n\n${SIGN}`,
+    subject: `Reminder: Today is Last Day of Issue Period (Return Due Tomorrow) - SCET [${gatePassNo(i)}]`,
+    text: `Dear ${i.studentName},\n\n${GREET}\n\nThis is an automated reminder that TODAY is the last day of your hardware issue period.\nYour borrowed lab components are due for return TOMORROW (by 4:00 PM):\n\n  Transaction Pass : ${gatePassNo(i)}\n  Enrollment No   : ${i.enrollmentNo}\n\nItems to Return:\n${formatItems(i)}\n\n  Return Due Time : ${fmt(toDateObj(i.dueDate))}\n  Late Return Fine: Rs.${cfg.finePerDay} / day after due time\n\nPlease return all items to Department ${i.branchCode} tomorrow by 4:00 PM on time to avoid penalty.\n\n${SIGN}`,
   }),
   deadlineAdmin: (i) => ({
-    subject: `[ADMIN] Return Due Tomorrow: ${i.enrollmentNo} - SCET ${i.branchCode}`,
-    text: `Dear Lab In-Charge,\n\nThis is an automated reminder that the following student's hardware checkout is due for return TOMORROW:\n\n  Gate Pass       : ${gatePassNo(i)}\n  Student         : ${i.studentName} (${i.enrollmentNo})\n  Branch          : ${i.studentBranch || i.branchCode}\n  Mobile          : ${i.studentMobile || 'N/A'}\n  Student Email   : ${i.studentEmail}\n\nItems to Return:\n${formatItems(i)}\n\n  Return Due Time : ${fmt(toDateObj(i.dueDate))}\n\nA reminder email has also been sent to the student.\n\n${SIGN}`,
+    subject: `[ADMIN REMINDER] Issue Period Ending Today (Return Due Tomorrow): ${i.enrollmentNo} - SCET ${i.branchCode}`,
+    text: `Dear Lab In-Charge,\n\nThis is an automated notification that TODAY is the last day of the issue period for the following student checkout (components are due for return TOMORROW):\n\n  Gate Pass       : ${gatePassNo(i)}\n  Student         : ${i.studentName} (${i.enrollmentNo})\n  Branch          : ${i.studentBranch || i.branchCode}\n  Mobile          : ${i.studentMobile || 'N/A'}\n  Student Email   : ${i.studentEmail}\n\nItems Checked Out:\n${formatItems(i)}\n\n  Return Due Time : ${fmt(toDateObj(i.dueDate))}\n\nAn automated reminder email has also been sent to the student to return the components tomorrow by 4:00 PM.\n\n${SIGN}`,
   }),
   passwordReset: (name, resetLink) => ({
     subject: `Password Reset - SCET Lab Portal`,
