@@ -111,7 +111,7 @@ router.post('/:id/issue', audited('ITEM_ISSUED'), async (req, res) => {
   const reqRef = db.doc(`requests/${id}`);
   const bRef = db.doc(`branches/${code}`);
 
-  let issueRecord;
+  let issueRecord, gp;
 
   await db.runTransaction(async (tx) => {
     const [reqSnap, bSnap] = await Promise.all([tx.get(reqRef), tx.get(bRef)]);
@@ -177,7 +177,7 @@ router.post('/:id/issue', audited('ITEM_ISSUED'), async (req, res) => {
 
     tx.create(db.doc(`issues/${code}__${seq}`), issueRecord);
 
-    const gp = gatePassNo(issueRecord);
+    gp = gatePassNo(issueRecord);
     tx.update(reqRef, {
       status: 'ISSUED',
       issuedBy: req.user.username,

@@ -897,12 +897,16 @@ export async function ledgerTab(code) {
       label: '⚡ Confirm & Issue Now',
       cls: 'gold',
       run: async (close) => {
-        const res = await api(`/api/branches/${code}/requests/${r.id}/issue`, {
-          method: 'POST'
-        });
-        mailToast(`Issued! Gate Pass ${res.gatePassNo} generated.`, res);
-        close();
-        await Promise.all([loadRequests(), load()]);
+        try {
+          const res = await api(`/api/branches/${code}/requests/${r.id}/issue`, {
+            method: 'POST'
+          });
+          mailToast(`Issued! Gate Pass ${res.gatePassNo} generated.`, res);
+          close();
+          await Promise.all([loadRequests(), load()]);
+        } catch (err) {
+          toast(err.message || 'Failed to issue components.', 'err');
+        }
       }
     }], true);
   }

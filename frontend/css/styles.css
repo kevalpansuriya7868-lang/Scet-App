@@ -2979,3 +2979,39 @@ body.theme-student .otp-submit-btn {
   0% { background-color: #d1fae5; border-color: #10b981; }
   100% { background-color: transparent; }
 }
+
+/* Locked & Auto-filled fields */
+.input-locked {
+  background: #f8fafc !important;
+  color: #334155 !important;
+  border-color: #cbd5e1 !important;
+  cursor: not-allowed !important;
+  font-weight: 600 !important;
+  box-shadow: none !important;
+}
+
+.input-locked:focus {
+  outline: none !important;
+  border-color: #cbd5e1 !important;
+  box-shadow: none !important;
+}
+
+.input-locked.verified {
+  background: #f0fdf4 !important;
+  color: #14532d !important;
+  border-color: #86efac !important;
+}
+
+.field-lock-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: #059669;
+  background: #ecfdf5;
+  border: 1px solid #a7f3d0;
+  padding: 1px 7px;
+  border-radius: 6px;
+  margin-left: 6px;
+}

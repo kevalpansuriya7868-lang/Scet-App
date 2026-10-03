@@ -158,18 +158,24 @@ export function authView() {
 
       const fullNameInput = h('input', {
         type: 'text',
-        placeholder: isStudent ? 'Enter your full name' : 'e.g. Dr. Alpesh Patel',
-        value: saved.fullName || ''
+        placeholder: isStudent ? '🔒 Auto-filled from SCET ID card' : 'e.g. Dr. Alpesh Patel',
+        value: saved.fullName || '',
+        readOnly: isStudent,
+        class: isStudent ? `input-locked${saved.fullName ? ' verified' : ''}` : ''
       });
       const idInput = h('input', {
         type: 'text',
-        placeholder: isStudent ? 'e.g. ET25BTCO180 (Login ID)' : 'e.g. FAC_CO_01 (Login ID)',
-        value: isStudent ? (saved.enrollmentNo || '') : (saved.username || '')
+        placeholder: isStudent ? '🔒 Auto-filled from SCET ID card' : 'e.g. FAC_CO_01 (Login ID)',
+        value: isStudent ? (saved.enrollmentNo || '') : (saved.username || ''),
+        readOnly: isStudent,
+        class: isStudent ? `input-locked${saved.enrollmentNo ? ' verified' : ''}` : ''
       });
       const branchInput = h('input', {
         type: 'text',
-        placeholder: 'e.g. CO, IT, EC, IC',
-        value: saved.branch || ''
+        placeholder: isStudent ? '🔒 Auto-filled from SCET ID card' : 'e.g. CO, IT, EC, IC',
+        value: saved.branch || '',
+        readOnly: isStudent,
+        class: isStudent ? `input-locked${saved.branch ? ' verified' : ''}` : ''
       });
       const mobileInput = h('input', {
         type: 'tel',
@@ -229,11 +235,25 @@ export function authView() {
 
         const previewBar = h('div', { class: 'id-card-preview-bar' },
           h('span', { style: 'font-weight:600' }, '🪪 Uploaded ID Card'),
-          h('button', {
-            type: 'button',
-            class: 'id-card-reupload-btn',
-            onclick: () => fileInput.click()
-          }, '🔄 Change Photo')
+          h('div', { style: 'display:flex;gap:6px;align-items:center;' },
+            h('button', {
+              type: 'button',
+              class: 'id-card-reupload-btn',
+              title: 'Rotate photo 90 degrees',
+              onclick: async () => {
+                if (!idCardDataUrl || isScanningIdCard) return;
+                const rotated = await rotateImageDataUrl(idCardDataUrl, 90);
+                idCardDataUrl = rotated;
+                imgPreview.src = rotated;
+                await processImageForVerification(rotated);
+              }
+            }, '🔄 Rotate 90°'),
+            h('button', {
+              type: 'button',
+              class: 'id-card-reupload-btn',
+              onclick: () => fileInput.click()
+            }, '📁 Change Photo')
+          )
         );
 
         previewContainer.replaceChildren(imgPreview, scanLaser, scanBadge, previewBar);
@@ -246,7 +266,7 @@ export function authView() {
         },
           h('span', { class: 'id-card-dropzone-icon' }, '🪪'),
           h('div', { class: 'id-card-dropzone-primary-text' }, 'Upload or Photograph Your SCET ID Card'),
-          h('div', { class: 'id-card-dropzone-subtext' }, 'Compulsory: Official SCET logo/header is required. System will verify your card and auto-fill your details.'),
+          h('div', { class: 'id-card-dropzone-subtext' }, 'Compulsory: Official SCET ID card format required. Name, Enrollment No, and Branch will be automatically extracted and locked.'),
           h('div', { class: 'id-card-dropzone-actions' },
             h('button', {
               type: 'button',
@@ -308,7 +328,7 @@ export function authView() {
                   <div>
                     <strong>Official SCET Student ID Verified!</strong>
                     <div style="font-size:0.8rem;color:#065f46;margin-top:2px;">
-                      Official SCET header detected. Details have been auto-filled below.
+                      Official SCET format detected. Name, Enrollment No, and Branch have been locked from your ID card.
                     </div>
                   </div>
                 `;
@@ -335,96 +355,92 @@ export function authView() {
           }
         }
 
-        async function handleFile(file) {
-          if (!file.type.startsWith('image/')) {
-            toast('Please upload a valid image file (PNG, JPG, JPEG).', 'err');
-            return;
-          }
-
+        async function processImageForVerification(base64Image) {
           try {
             isScanningIdCard = true;
             idCardApproved = false;
             idCardError = null;
             submitBtn.disabled = true;
             submitBtn.innerText = 'Scanning SCET ID Card...';
-
-            // Compress to maximum 800px width/height to keep Firestore payload lightweight
-            const compressedBase64 = await compressImage(file, 800, 0.82);
-            idCardDataUrl = compressedBase64;
             updateUi();
 
-            // Run OCR via Tesseract.js
-            let extractedText = '';
-            if (window.Tesseract && typeof window.Tesseract.recognize === 'function') {
-              const ocrRes = await window.Tesseract.recognize(compressedBase64, 'eng', {
-                logger: (m) => {
-                  if (m.status === 'recognizing text' && typeof m.progress === 'number') {
-                    const pct = Math.round(m.progress * 100);
-                    const labelEl = scanBadge.querySelector('.scan-badge-label');
-                    if (labelEl) labelEl.textContent = `🔍 Reading SCET ID Card (${pct}%)...`;
+            // Detect image dimensions to determine orientation
+            const dims = await new Promise((res) => {
+              const img = new Image();
+              img.onload = () => res({ w: img.width, h: img.height });
+              img.src = base64Image;
+            });
+
+            // If height > width (portrait photo of landscape card), test 0, 270, 90, 180
+            // If width >= height (landscape photo), test 0, 180, 270, 90
+            const angles = dims.h > dims.w ? [0, 270, 90, 180] : [0, 180, 270, 90];
+            let successfulExtraction = null;
+
+            for (let a = 0; a < angles.length; a++) {
+              const deg = angles[a];
+              const testUrl = deg === 0 ? base64Image : await rotateImageDataUrl(base64Image, deg);
+
+              let extractedText = '';
+              if (window.Tesseract && typeof window.Tesseract.recognize === 'function') {
+                const ocrRes = await window.Tesseract.recognize(testUrl, 'eng', {
+                  logger: (m) => {
+                    if (m.status === 'recognizing text' && typeof m.progress === 'number') {
+                      const pct = Math.round(m.progress * 100);
+                      const labelEl = scanBadge.querySelector('.scan-badge-label');
+                      if (labelEl) {
+                        labelEl.textContent = a === 0
+                          ? `🔍 Reading SCET ID Card (${pct}%)...`
+                          : `🔄 Testing Orientation ${a + 1}/${angles.length} (${pct}%)...`;
+                      }
+                    }
                   }
-                }
-              });
-              extractedText = ocrRes?.data?.text || '';
+                });
+                extractedText = ocrRes?.data?.text || '';
+              }
+
+              const result = verifyScetIdCard(extractedText);
+              if (result.isScetApproved) {
+                successfulExtraction = { ...result, finalUrl: testUrl, angle: deg };
+                break;
+              }
             }
 
-            // SCET Header & Identity Verification
-            const upper = extractedText.toUpperCase();
-            const hasScetHeader =
-              upper.includes('SCET') ||
-              upper.includes('SARVAJANIK') ||
-              (upper.includes('ENGINEERING') && (upper.includes('TECHNOLOGY') || upper.includes('COLLEGE') || upper.includes('SURAT'))) ||
-              upper.includes('SARVAJANIK UNIVERSITY');
-
-            if (!hasScetHeader) {
+            if (!successfulExtraction) {
               idCardApproved = false;
-              idCardError = 'Official SCET logo/header was not detected in this image. Please upload a clear, genuine photo of your official SCET student ID card.';
-              toast('❌ ID Card Not Approved: Official SCET header not detected.', 'err');
+              idCardError = 'Official SCET Student ID format not detected. ID card must contain Sarvajanik College / SCET header, Enrollment No., Program, and Student Name.';
+              fullNameInput.value = '';
+              idInput.value = '';
+              branchInput.value = '';
+              fullNameInput.classList.remove('verified');
+              idInput.classList.remove('verified');
+              branchInput.classList.remove('verified');
+              toast('❌ ID Card Not Approved: Official SCET format not detected.', 'err');
             } else {
               idCardApproved = true;
               idCardError = null;
 
-              // Auto-fill extracted details:
-              // 1. Enrollment Number (ET... or 12-14 digits)
-              const enMatch =
-                upper.match(/\b(ET\d{2}[A-Z]{2,4}\d{2,4})\b/) ||
-                upper.match(/\b(\d{12,14})\b/) ||
-                upper.match(/(?:ENROLLMENT|ENROLMENT|ROLL|REG(?:ISTRATION)?)\s*(?:NO|NUM|NUMBER)?[:.\s-]*([A-Z0-9]{8,16})/);
-              if (enMatch && enMatch[1]) {
-                idInput.value = enMatch[1].trim();
-                idInput.classList.add('autofilled-pulse');
+              // Use upright oriented image for preview & storage
+              idCardDataUrl = successfulExtraction.finalUrl;
+              imgPreview.src = idCardDataUrl;
+
+              // Automatically set and lock details from the ID card
+              if (successfulExtraction.studentName) {
+                fullNameInput.value = successfulExtraction.studentName;
+                fullNameInput.classList.add('verified', 'autofilled-pulse');
+                setTimeout(() => fullNameInput.classList.remove('autofilled-pulse'), 2000);
+              }
+              if (successfulExtraction.enrollmentNo) {
+                idInput.value = successfulExtraction.enrollmentNo;
+                idInput.classList.add('verified', 'autofilled-pulse');
                 setTimeout(() => idInput.classList.remove('autofilled-pulse'), 2000);
               }
-
-              // 2. Branch / Department
-              let detectedBranch = '';
-              if (/COMPUTER|COMP\b|C\.O\./.test(upper)) detectedBranch = 'CO';
-              else if (/INFORMATION\s*TECH|INFO\s*TECH|\bIT\b/.test(upper)) detectedBranch = 'IT';
-              else if (/ELECTRONICS\s*&\s*COMM|ELECTRONICS|E\.C\./.test(upper)) detectedBranch = 'EC';
-              else if (/ELECTRICAL|E\.E\./.test(upper)) detectedBranch = 'EE';
-              else if (/MECHANICAL|M\.E\./.test(upper)) detectedBranch = 'ME';
-              else if (/CIVIL|C\.L\./.test(upper)) detectedBranch = 'CL';
-              else if (/CHEMICAL|C\.H\./.test(upper)) detectedBranch = 'CH';
-              else if (/ARTIFICIAL\s*INTELLIGENCE|\bAI\b/.test(upper)) detectedBranch = 'AI';
-
-              if (detectedBranch) {
-                branchInput.value = detectedBranch;
-                branchInput.classList.add('autofilled-pulse');
+              if (successfulExtraction.branch) {
+                branchInput.value = successfulExtraction.branch;
+                branchInput.classList.add('verified', 'autofilled-pulse');
                 setTimeout(() => branchInput.classList.remove('autofilled-pulse'), 2000);
               }
 
-              // 3. Name
-              const nameMatch = extractedText.match(/(?:Name|Student Name)\s*[:.\s-]+([A-Za-z\s]{3,35})/i);
-              if (nameMatch && nameMatch[1]) {
-                const parsedName = nameMatch[1].replace(/[\r\n]+/g, ' ').trim();
-                if (parsedName.length > 2 && !/^(STUDENT|COLLEGE|SCET|ENGINEERING|TECHNOLOGY)/i.test(parsedName)) {
-                  fullNameInput.value = parsedName;
-                  fullNameInput.classList.add('autofilled-pulse');
-                  setTimeout(() => fullNameInput.classList.remove('autofilled-pulse'), 2000);
-                }
-              }
-
-              toast('✅ Official SCET ID Card Verified! Details auto-filled.', 'ok');
+              toast(`✅ Official SCET ID Card Verified! Extracted ${successfulExtraction.enrollmentNo || 'details'}.`, 'ok');
             }
           } catch (err) {
             console.error('ID Card scan failed:', err);
@@ -437,6 +453,16 @@ export function authView() {
             submitBtn.innerText = '🚀 Send Verification Code →';
             updateUi();
           }
+        }
+
+        async function handleFile(file) {
+          if (!file.type.startsWith('image/')) {
+            toast('Please upload a valid image file (PNG, JPG, JPEG).', 'err');
+            return;
+          }
+          const compressed = await compressImage(file, 800, 0.82);
+          idCardDataUrl = compressed;
+          await processImageForVerification(compressed);
         }
 
         idCardSection = h('div', { class: 'id-card-section' },
@@ -470,9 +496,18 @@ export function authView() {
         );
       }
       formElements.push(
-        field('Full name', fullNameInput),
-        field(isStudent ? 'Enrollment number (Login ID)' : 'Faculty ID (Login ID)', idInput),
-        field(isStudent ? 'Branch / dept (e.g. CO, IT, EC)' : 'Department (e.g. CO, IT, EC)', branchInput),
+        field(
+          isStudent ? h('span', { style: 'display:flex;align-items:center;justify-content:space-between;' }, 'Full name (from ID Card)', h('span', { class: 'field-lock-tag' }, '🔒 Locked from ID')) : 'Full name',
+          fullNameInput
+        ),
+        field(
+          isStudent ? h('span', { style: 'display:flex;align-items:center;justify-content:space-between;' }, 'Enrollment number (Login ID)', h('span', { class: 'field-lock-tag' }, '🔒 Locked from ID')) : 'Faculty ID (Login ID)',
+          idInput
+        ),
+        field(
+          isStudent ? h('span', { style: 'display:flex;align-items:center;justify-content:space-between;' }, 'Branch / Department', h('span', { class: 'field-lock-tag' }, '🔒 Locked from ID')) : 'Department (e.g. CO, IT, EC)',
+          branchInput
+        ),
         field('Mobile number (10 digits)', mobileInput),
         field('Official Email (@scet.ac.in only)', emailInput),
         field('Your Password (min 8 chars)', passwordInput),
@@ -504,8 +539,8 @@ export function authView() {
           if (isScanningIdCard) {
             return toast('⏳ Please wait, your SCET ID Card is still being scanned...', 'warn');
           }
-          if (!idCardApproved) {
-            return toast('❌ ID Card Not Approved: Official SCET logo/header must be detected.', 'err');
+          if (!idCardApproved || !fullNameInput.value || !idInput.value || !branchInput.value) {
+            return toast('❌ ID Card Not Approved: Official SCET Student ID format is required.', 'err');
           }
         }
 
@@ -1045,5 +1080,120 @@ function compressImage(file, maxDimension = 800, quality = 0.82) {
     reader.readAsDataURL(file);
   });
 }
+
+// ──────────── ROTATE IMAGE DATA URL (CANVAS) ────────────
+function rotateImageDataUrl(dataUrl, degrees = 90) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onerror = reject;
+    img.onload = () => {
+      const rad = (degrees * Math.PI) / 180;
+      const sin = Math.abs(Math.sin(rad));
+      const cos = Math.abs(Math.cos(rad));
+      const newWidth = Math.round(img.width * cos + img.height * sin);
+      const newHeight = Math.round(img.width * sin + img.height * cos);
+
+      const canvas = document.createElement('canvas');
+      canvas.width = newWidth;
+      canvas.height = newHeight;
+      const ctx = canvas.getContext('2d');
+      ctx.translate(newWidth / 2, newHeight / 2);
+      ctx.rotate(rad);
+      ctx.drawImage(img, -img.width / 2, -img.height / 2);
+      resolve(canvas.toDataURL('image/jpeg', 0.85));
+    };
+    img.src = dataUrl;
+  });
+}
+
+// ──────────── SCET ID CARD FORMAT & IDENTITY VALIDATION ────────────
+function verifyScetIdCard(rawText) {
+  const upper = (rawText || '').toUpperCase();
+
+  // 1. Institutional Title Check
+  const hasSarvajanik = upper.includes('SARVAJANIK') || upper.includes('SCET');
+  const hasCollegeOrTech =
+    upper.includes('COLLEGE') ||
+    upper.includes('ENGINEERING') ||
+    upper.includes('TECHNOLOGY') ||
+    upper.includes('UNIVERSITY') ||
+    upper.includes('SURAT');
+  const hasInstitution = hasSarvajanik && hasCollegeOrTech;
+
+  // 2. ID Card Format Structural Markers Check
+  const hasEnrollmentLabel =
+    upper.includes('ENROLLMENT') ||
+    upper.includes('ENROLMENT') ||
+    upper.includes('ROLL') ||
+    /\bET\d{2}[A-Z]{2,4}\d{2,4}\b/.test(upper);
+  const hasProgramLabel =
+    upper.includes('PROGRAM') ||
+    upper.includes('BRANCH') ||
+    upper.includes('COMPUTER') ||
+    upper.includes('COURSE');
+  const hasNameLabel = upper.includes('NAME') || upper.includes('STUDENT');
+  const hasBloodOrEmergency =
+    upper.includes('BLOOD') ||
+    upper.includes('EMERGENCY') ||
+    upper.includes('PH.NO') ||
+    upper.includes('PHONE');
+
+  const structuralScore =
+    (hasEnrollmentLabel ? 1 : 0) +
+    (hasProgramLabel ? 1 : 0) +
+    (hasNameLabel ? 1 : 0) +
+    (hasBloodOrEmergency ? 1 : 0);
+
+  // Must have official institution header AND at least two structural markers
+  const isScetApproved = hasInstitution && structuralScore >= 2;
+
+  // 3. Extract Name
+  let studentName = '';
+  const nameMatch = rawText.match(/(?:Name|Student\s*Name)\s*[:.\s-]+([A-Za-z\s]{3,40})/i);
+  if (nameMatch && nameMatch[1]) {
+    const cleanName = nameMatch[1].replace(/[\r\n]+/g, ' ').replace(/\s{2,}/g, ' ').trim();
+    if (cleanName.length > 2 && !/^(STUDENT|COLLEGE|SCET|ENGINEERING|TECHNOLOGY|SARVAJANIK|UNIVERSITY)/i.test(cleanName)) {
+      studentName = cleanName;
+    }
+  }
+
+  // 4. Extract Enrollment Number
+  let enrollmentNo = '';
+  const enLabelMatch = upper.match(/(?:ENROLLMENT|ENROLMENT|ROLL|REG(?:ISTRATION)?)\s*(?:NO|NUM|NUMBER)?\.?\s*[:.\s-]+([A-Z0-9]{8,18})/);
+  const enRegexMatch = upper.match(/\b(ET\d{2}[A-Z]{2,4}\d{2,4})\b/) || upper.match(/\b(\d{12,14})\b/);
+  if (enLabelMatch && enLabelMatch[1]) {
+    enrollmentNo = enLabelMatch[1].replace(/[^A-Z0-9]/g, '').trim();
+  } else if (enRegexMatch && enRegexMatch[1]) {
+    enrollmentNo = enRegexMatch[1].trim();
+  }
+
+  // 5. Extract Branch / Department
+  let branch = '';
+  const progMatch = upper.match(/(?:PROGRAM|BRANCH|DEPT|DEPARTMENT)\s*[:.\s-]+([A-Z\s&]{2,40})/);
+  const progText = progMatch ? progMatch[1] : upper;
+
+  if (/COMPUTER|COMP\b|C\.O\./.test(progText)) branch = 'CO';
+  else if (/INFORMATION\s*TECH|INFO\s*TECH|\bIT\b/.test(progText)) branch = 'IT';
+  else if (/ELECTRONICS\s*&\s*COMM|ELECTRONICS|E\.C\./.test(progText)) branch = 'EC';
+  else if (/ELECTRICAL|E\.E\./.test(progText)) branch = 'EE';
+  else if (/MECHANICAL|M\.E\./.test(progText)) branch = 'ME';
+  else if (/CIVIL|C\.L\./.test(progText)) branch = 'CL';
+  else if (/CHEMICAL|C\.H\./.test(progText)) branch = 'CH';
+  else if (/ARTIFICIAL\s*INTELLIGENCE|\bAI\b/.test(progText)) branch = 'AI';
+  else if (enrollmentNo) {
+    const enBranchMatch = enrollmentNo.match(/ET\d{2}[A-Z]{0,2}([A-Z]{2})/);
+    if (enBranchMatch) branch = enBranchMatch[1];
+  }
+
+  return {
+    isScetApproved,
+    studentName,
+    enrollmentNo,
+    branch,
+    hasInstitution,
+    structuralScore
+  };
+}
+
 
 
