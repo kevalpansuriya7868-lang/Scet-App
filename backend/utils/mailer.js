@@ -13,10 +13,16 @@ const transport = smtpReady
           port: cfg.smtp.port,
           secure: cfg.smtp.port === 465,
           auth: { user: cfg.smtp.user, pass: cfg.smtp.pass },
+          connectionTimeout: 8000,
+          greetingTimeout: 8000,
+          socketTimeout: 10000,
         })
       : nodemailer.createTransport({
           service: 'gmail',
           auth: { user: cfg.smtp.user, pass: cfg.smtp.pass },
+          connectionTimeout: 8000,
+          greetingTimeout: 8000,
+          socketTimeout: 10000,
         })
     )
   : null;
@@ -133,7 +139,11 @@ async function sendMail({ to, subject, text, attachments }) {
     return { ok: true, provider: 'smtp', messageId: info.messageId };
   } catch (e) {
     console.warn('[Mailer] SMTP delivery failed:', e.message);
-    return { ok: false, error: e.message };
+    let errMsg = e.message;
+    if (e.message && (e.message.includes('timeout') || e.code === 'ETIMEDOUT')) {
+      errMsg = 'Mail server connection timed out (Render free tier blocks SMTP ports 465/587). Please configure Google Apps Script Webhook (HTTP_EMAIL_URL) to send emails via HTTPS.';
+    }
+    return { ok: false, error: errMsg };
   }
 }
 
