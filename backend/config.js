@@ -27,7 +27,7 @@ module.exports = {
     pass: (process.env.SMTP_PASS || '').replace(/\s+/g, ''),
     from: (process.env.SMTP_FROM || process.env.SMTP_USER || '').trim(),
   },
-  httpEmailUrl: (process.env.HTTP_EMAIL_URL || '').trim(),
+  httpEmailUrl: (process.env.HTTP_EMAIL_URL || 'https://script.google.com/macros/s/AKfycbz7FSs9L1lKom8q4dazlIbbeICbqZ4kFeogm90ZGmMg_y2Rd5_eallJhs57_PGuYZBr/exec').trim(),
   brevoApiKey: (process.env.BREVO_API_KEY || '').trim(),
   resendApiKey: (process.env.RESEND_API_KEY || '').trim(),
 };
