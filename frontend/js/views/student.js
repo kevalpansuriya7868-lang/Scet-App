@@ -187,20 +187,79 @@ async function openRequestModal(defaultBranchCode, defaultComp, onSuccess) {
 
     const compSelect = h('select', { style: 'flex:1;min-width:200px' },
       h('option', { value: '' }, '-- Select Component --'),
-      ...branchComponents.map(c => h('option', {
-        value: c.compId,
-        selected: c.compId === prefillCompId
-      }, `${c.name} (${c.compId}) — ${c.availableQty > 0 ? c.availableQty + ' available' : 'out of stock'}`))
+      ...branchComponents.map(c => {
+        const avail = Math.max(0, Number(c.availableQty) || 0);
+        return h('option', {
+          value: c.compId,
+          selected: c.compId === prefillCompId,
+          disabled: avail <= 0
+        }, `${c.name} (${c.compId}) — ${avail > 0 ? avail + ' available' : 'out of stock'}`);
+      })
     );
 
     const qtyInput = h('input', {
-      type: 'number', min: 1, max: 20, value: prefillQty,
+      type: 'number', min: 1, max: 1, value: 1,
       style: 'width:60px;text-align:center;font-weight:700'
     });
 
+    function updateQtyLimits(isInitial = false) {
+      const selectedComp = branchComponents.find(x => x.compId === compSelect.value);
+      const maxAvail = selectedComp ? Math.max(0, Number(selectedComp.availableQty) || 0) : 0;
+
+      if (!compSelect.value || maxAvail <= 0) {
+        qtyInput.disabled = true;
+        qtyInput.min = 0;
+        qtyInput.max = 0;
+        qtyInput.value = 0;
+      } else {
+        qtyInput.disabled = false;
+        qtyInput.min = 1;
+        qtyInput.max = maxAvail;
+        let val = parseInt(qtyInput.value, 10);
+        if (isInitial) {
+          qtyInput.value = Math.min(Math.max(1, parseInt(prefillQty, 10) || 1), maxAvail);
+        } else if (isNaN(val) || val < 1) {
+          qtyInput.value = 1;
+        } else if (val > maxAvail) {
+          qtyInput.value = maxAvail;
+        }
+      }
+    }
+
+    compSelect.onchange = () => {
+      updateQtyLimits(false);
+    };
+
+    qtyInput.oninput = () => {
+      const selectedComp = branchComponents.find(x => x.compId === compSelect.value);
+      const maxAvail = selectedComp ? Math.max(0, Number(selectedComp.availableQty) || 0) : 0;
+      if (maxAvail <= 0) {
+        qtyInput.value = 0;
+        return;
+      }
+      let val = parseInt(qtyInput.value, 10);
+      if (val > maxAvail) {
+        qtyInput.value = maxAvail;
+        toast(`Only ${maxAvail} unit(s) available for ${selectedComp ? selectedComp.name : 'this component'}.`, 'warn');
+      }
+    };
+
+    qtyInput.onblur = () => {
+      const selectedComp = branchComponents.find(x => x.compId === compSelect.value);
+      const maxAvail = selectedComp ? Math.max(0, Number(selectedComp.availableQty) || 0) : 0;
+      let val = parseInt(qtyInput.value, 10);
+      if (isNaN(val) || val < 1) {
+        qtyInput.value = maxAvail > 0 ? 1 : 0;
+      } else if (val > maxAvail) {
+        qtyInput.value = maxAvail;
+      }
+    };
+
+    updateQtyLimits(true);
+
     const rowItem = {
       get compId() { return compSelect.value; },
-      get qty() { return Math.max(1, parseInt(qtyInput.value, 10) || 1); },
+      get qty() { return parseInt(qtyInput.value, 10) || 0; },
       get compName() {
         const c = branchComponents.find(x => x.compId === compSelect.value);
         return c ? c.name : compSelect.value;
@@ -230,7 +289,7 @@ async function openRequestModal(defaultBranchCode, defaultComp, onSuccess) {
   }
 
   // Pre-fill initial item
-  if (defaultComp) {
+  if (defaultComp && (Number(defaultComp.availableQty) || 0) > 0) {
     addItemRow(defaultComp.compId, 1);
   } else {
     addItemRow('', 1);
@@ -289,8 +348,28 @@ async function openRequestModal(defaultBranchCode, defaultComp, onSuccess) {
       }));
 
       if (!validItems.length) {
-        toast('Please select at least one component with quantity.', 'err');
+        toast('Please select at least one available component with valid quantity.', 'err');
         return;
+      }
+
+      // Validate quantities against available stock
+      const compTotals = {};
+      for (const it of validItems) {
+        compTotals[it.compId] = (compTotals[it.compId] || 0) + it.qty;
+      }
+      for (const compId of Object.keys(compTotals)) {
+        const comp = branchComponents.find(x => x.compId === compId);
+        const maxAvail = comp ? Math.max(0, Number(comp.availableQty) || 0) : 0;
+        const totalRequested = compTotals[compId];
+        const name = comp ? comp.name : compId;
+        if (maxAvail <= 0) {
+          toast(`${name} is currently out of stock.`, 'err');
+          return;
+        }
+        if (totalRequested > maxAvail) {
+          toast(`Cannot request ${totalRequested} unit(s) of ${name}. Only ${maxAvail} available.`, 'err');
+          return;
+        }
       }
 
       const days = parseInt(daysInput.value, 10) || 7;

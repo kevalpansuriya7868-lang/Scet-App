@@ -49,10 +49,13 @@ router.post('/requests', async (req, res) => {
   }
 
   const items = [];
+  const compTotals = {};
   for (const it of rawItems) {
     const compId = clean(it.compId);
     const qty = Math.max(1, parseInt(it.qty, 10) || 1);
     if (!compId) continue;
+
+    compTotals[compId] = (compTotals[compId] || 0) + qty;
 
     // Look up component to ensure validity & accurate name
     const cSnap = await db.doc(`components/${branchCode}__${compId}`).get();
@@ -60,6 +63,14 @@ router.post('/requests', async (req, res) => {
       throw httpErr(404, `Component ${compId} not found in ${branchCode} catalog.`);
     }
     const cData = cSnap.data();
+    const available = typeof cData.availableQty === 'number' ? cData.availableQty : 0;
+    if (available <= 0) {
+      throw httpErr(409, `Component ${cData.name || compId} is currently out of stock.`);
+    }
+    if (compTotals[compId] > available) {
+      throw httpErr(409, `Requested quantity (${compTotals[compId]}) exceeds available stock (${available}) for ${cData.name || compId}.`);
+    }
+
     items.push({
       compId,
       compName: cData.name || clean(it.compName) || compId,
