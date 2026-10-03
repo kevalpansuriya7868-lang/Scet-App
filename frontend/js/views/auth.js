@@ -371,9 +371,9 @@ export function authView() {
               img.src = base64Image;
             });
 
-            // If height > width (portrait photo of landscape card), test 0, 90, 270, 180
-            // If width >= height (landscape photo), test 0, 90, 180, 270
-            const angles = dims.h > dims.w ? [0, 90, 270, 180] : [0, 90, 180, 270];
+            // If height > width (portrait photo of landscape card), test 270 deg (counter-clockwise upright) first
+            // If width >= height (landscape photo), test 0 deg (natural orientation) first
+            const angles = dims.h > dims.w ? [270, 0, 90, 180] : [0, 270, 90, 180];
             let successfulExtraction = null;
 
             for (let a = 0; a < angles.length; a++) {
@@ -460,7 +460,7 @@ export function authView() {
             toast('Please upload a valid image file (PNG, JPG, JPEG).', 'err');
             return;
           }
-          const compressed = await compressImage(file, 800, 0.82);
+          const compressed = await compressImage(file, 1400, 0.90);
           idCardDataUrl = compressed;
           await processImageForVerification(compressed);
         }
@@ -1106,21 +1106,77 @@ function rotateImageDataUrl(dataUrl, degrees = 90) {
   });
 }
 
+// ──────────── SCET ENROLLMENT NORMALIZATION (ET + XX + BT + BRANCH + XXX) ────────────
+function normalizeScetEnrollment(raw, branchHint = '') {
+  if (!raw) return '';
+  let s = raw.trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
+
+  const etIndex = s.indexOf('ET');
+  if (etIndex !== -1) {
+    const candidate = s.slice(etIndex, etIndex + 11);
+    if (candidate.length >= 8) {
+      const prefix = 'ET';
+      // 1. Year: 2 digits (e.g. 25, 24, 23)
+      let year = candidate.slice(2, 4)
+        .replace(/O/g, '0')
+        .replace(/[IL]/g, '1')
+        .replace(/S/g, '5')
+        .replace(/Z/g, '2');
+
+      // 2. Course: B.Tech is always 'BT'
+      // Common OCR misreads: 8T, 3T, ST, ET, 6T -> BT
+      let course = candidate.slice(4, 6);
+      if (course === '8T' || course === '3T' || course === 'ST' || course === 'ET' || course === 'BT' || course === '6T') {
+        course = 'BT';
+      } else if (course === '8M' || course === 'MT') {
+        course = 'MT';
+      } else if (course === 'DE' || course === '0E') {
+        course = 'DE';
+      }
+
+      // 3. Branch code: 2 letters (CO, IT, EC, EE, ME, CL, CH, AI, IC, TT)
+      let branchPart = candidate.slice(6, 8);
+      if (branchPart === 'C0' || branchPart === 'CO' || branchPart === 'CD') branchPart = 'CO';
+      else if (branchPart === '1T' || branchPart === 'IT' || branchPart === 'LT') branchPart = 'IT';
+      else if (branchPart === 'E0' || branchPart === 'EC') branchPart = 'EC';
+      else if (branchHint && ['CO', 'IT', 'EC', 'EE', 'ME', 'CL', 'CH', 'AI', 'IC', 'TT'].includes(branchHint)) {
+        if (!/^[A-Z]{2}$/.test(branchPart) || branchPart === '00' || branchPart === '01') {
+          branchPart = branchHint;
+        }
+      }
+
+      // 4. Roll number: 3 digits (e.g. 177)
+      // Common OCR misreads for digits: I -> 1, L -> 1, O -> 0, S -> 5, Z -> 2, B -> 8
+      let rollPart = candidate.slice(8, 11);
+      rollPart = rollPart
+        .replace(/[IL|!]/g, '1')
+        .replace(/O/g, '0')
+        .replace(/S/g, '5')
+        .replace(/Z/g, '2')
+        .replace(/B/g, '8');
+
+      if (/^\d{2}$/.test(year) && /^[A-Z]{2}$/.test(course) && /^[A-Z]{2}$/.test(branchPart) && /^\d{2,4}$/.test(rollPart)) {
+        return prefix + year + course + branchPart + rollPart;
+      }
+    }
+  }
+  return s;
+}
+
 // ──────────── SCET ID CARD FORMAT & IDENTITY VALIDATION ────────────
 function verifyScetIdCard(rawText) {
   const upper = (rawText || '').toUpperCase();
+  const lines = (rawText || '').split(/[\r\n]+/).map(l => l.trim()).filter(Boolean);
 
   // 1. SCET Unique Enrollment Number Pattern Check
-  // SCET Sarvajanik University: ET + 2 digits + 2-4 branch letters + digits (e.g. ET25BTCO177)
-  // SCET GTU code: 2 digits + 042 (SCET college code) + digits (e.g. 200420107001)
+  // SCET format: ET + 2 digits + BT + 2 branch letters + 3 digits (e.g. ET25BTCO177)
   const scetEnRegex = /\b(ET\d{2}[A-Z]{2,4}\d{2,4})\b/i;
-  const scetEnGeneralRegex = /\b(ET\d{2}[A-Z0-9]{4,9})\b/i;
+  const scetEnGeneralRegex = /\b(ET[A-Z0-9]{7,10})\b/i;
   const gtuScetRegex = /\b(\d{2}042\d{7,9})\b/;
   const scetEnMatch = upper.match(scetEnRegex) || upper.match(scetEnGeneralRegex) || upper.match(gtuScetRegex);
   const hasScetEnrollment = !!scetEnMatch;
 
   // 2. SCET Institutional Title / Keyword Check
-  // Note: On physical cards, dark-green header text may OCR with noise; institutional markers and address tokens verify identity
   const hasInstitution =
     upper.includes('SARVAJANIK') ||
     upper.includes('SCET') ||
@@ -1159,32 +1215,7 @@ function verifyScetIdCard(rawText) {
   // Must have SCET Enrollment OR SCET Institution header, AND at least 2 structural markers
   const isScetApproved = (hasScetEnrollment || hasInstitution) && structuralScore >= 2;
 
-  // 4. Extract Name
-  let studentName = '';
-  let nameMatch = rawText.match(/(?:Name|Student\s*Name|Nam|Nme)\s*[:.\s\-|]+\s*([A-Za-z\s]{3,40})/i);
-  if (!nameMatch) {
-    nameMatch = rawText.match(/(?:Name|Student\s*Name|Nam|Nme)\s*[:.\s\-|]*[\r\n]+\s*([A-Za-z\s]{3,40})/i);
-  }
-  if (nameMatch && nameMatch[1]) {
-    let cleanName = nameMatch[1].replace(/[\r\n]+/g, ' ').replace(/\s{2,}/g, ' ').trim();
-    cleanName = cleanName.split(/\b(?:Program|Enrollment|Blood|Emergency|Department|Branch)\b/i)[0].trim();
-    if (cleanName.length > 2 && !/^(STUDENT|COLLEGE|SCET|ENGINEERING|TECHNOLOGY|SARVAJANIK|UNIVERSITY)/i.test(cleanName)) {
-      studentName = cleanName;
-    }
-  }
-
-  // 5. Extract Enrollment Number
-  let enrollmentNo = '';
-  if (scetEnMatch && scetEnMatch[1]) {
-    enrollmentNo = scetEnMatch[1].trim().toUpperCase();
-  } else {
-    const enLabelMatch = upper.match(/(?:ENROLLMENT|ENROLMENT|ROLL|REG(?:ISTRATION)?)\s*(?:NO|NUM|NUMBER)?\.?\s*[:.\s\-|]*\s*([A-Z0-9]{8,18})/);
-    if (enLabelMatch && enLabelMatch[1]) {
-      enrollmentNo = enLabelMatch[1].replace(/[^A-Z0-9]/g, '').trim().toUpperCase();
-    }
-  }
-
-  // 6. Extract Branch / Department
+  // 4. Extract Branch / Department first (so it can act as a hint for enrollment)
   let branch = '';
   const progMatch = upper.match(/(?:PROGRAM|BRANCH|DEPT|DEPARTMENT)\s*[:.\s\-|]*\s*([A-Z\s&]{2,40})/);
   const progText = progMatch ? progMatch[1] : upper;
@@ -1198,12 +1229,73 @@ function verifyScetIdCard(rawText) {
   else if (/CHEMICAL|C\.H\./i.test(progText)) branch = 'CH';
   else if (/ARTIFICIAL\s*INTELLIGENCE|\bAI\b/i.test(progText)) branch = 'AI';
   else if (/INSTRUMENTATION|I\.C\./i.test(progText)) branch = 'IC';
-  else if (enrollmentNo) {
-    const enBranchMatch = enrollmentNo.match(/ET\d{2}[A-Z]{0,2}([A-Z]{2})/i);
+
+  // 5. Extract and Normalize Enrollment Number (fixes 8T->BT, I77->177)
+  let rawEnrollment = '';
+  if (scetEnMatch && scetEnMatch[1]) {
+    rawEnrollment = scetEnMatch[1].trim().toUpperCase();
+  } else {
+    const enLabelMatch = upper.match(/(?:ENROLLMENT|ENROLMENT|ROLL|REG(?:ISTRATION)?)\s*(?:NO|NUM|NUMBER)?\.?\s*[:.\s\-|]*\s*([A-Z0-9]{8,18})/);
+    if (enLabelMatch && enLabelMatch[1]) {
+      rawEnrollment = enLabelMatch[1].replace(/[^A-Z0-9]/g, '').trim().toUpperCase();
+    }
+  }
+
+  const enrollmentNo = normalizeScetEnrollment(rawEnrollment, branch);
+
+  // If branch wasn't found from program, deduce from enrollment number
+  if (!branch && enrollmentNo) {
+    const enBranchMatch = enrollmentNo.match(/ET\d{2}[A-Z]{2}([A-Z]{2})/i);
     if (enBranchMatch) {
       const code = enBranchMatch[1].toUpperCase();
       if (['CO', 'IT', 'EC', 'EE', 'ME', 'CL', 'CH', 'AI', 'IC', 'TT'].includes(code)) {
         branch = code;
+      }
+    }
+  }
+
+  // 6. Extract Student Name (strict: multi-word or min 5 chars, ignores single-word noise like 'ran')
+  let studentName = '';
+  
+  // Strategy 1: Look for line with explicit 'Name :' or 'Student Name :'
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const match = line.match(/\b(?:Name|Student\s*Name)\s*[:.\s\-|]+\s*([A-Za-z\s]{4,50})/i);
+    if (match && match[1]) {
+      let cand = match[1].replace(/[^A-Za-z\s]/g, ' ').replace(/\s+/g, ' ').trim();
+      cand = cand.split(/\b(?:Program|Enrollment|Blood|Emergency|Branch|Department)\b/i)[0].trim();
+      if (cand.length >= 5 && !/^(STUDENT|COLLEGE|SCET|ENGINEERING|TECHNOLOGY|SARVAJANIK|UNIVERSITY)/i.test(cand)) {
+        studentName = cand;
+        break;
+      }
+    }
+  }
+
+  // Strategy 2: If 'Name :' is by itself on a line, take the name from the next line
+  if (!studentName) {
+    for (let i = 0; i < lines.length - 1; i++) {
+      if (/^\b(?:Name|Student\s*Name)\s*[:.\s\-|]*$/i.test(lines[i])) {
+        const nextLine = lines[i+1].replace(/[^A-Za-z\s]/g, ' ').replace(/\s+/g, ' ').trim();
+        if (nextLine.length >= 5 && !/^(STUDENT|COLLEGE|SCET|ENGINEERING|TECHNOLOGY|SARVAJANIK|UNIVERSITY|PROGRAM)/i.test(nextLine)) {
+          studentName = nextLine;
+          break;
+        }
+      }
+    }
+  }
+
+  // Strategy 3: Find line right before 'Program :'
+  if (!studentName) {
+    const progIdx = lines.findIndex(l => /\bPROGRAM\b/i.test(l));
+    if (progIdx > 0) {
+      for (let k = progIdx - 1; k >= Math.max(0, progIdx - 3); k--) {
+        const l = lines[k];
+        let cand = l.replace(/^[^A-Za-z]+/, '').replace(/[^A-Za-z\s]/g, ' ').replace(/\s+/g, ' ').trim();
+        cand = cand.replace(/^(?:Name|Student\s*Name)\s*[:.\s\-|]*/i, '').trim();
+        if (cand.length >= 6 && cand.includes(' ') && !/^(COLLEGE|SCET|ENGINEERING|TECHNOLOGY|SARVAJANIK|UNIVERSITY|SURAT|MARG)/i.test(cand)) {
+          studentName = cand;
+          break;
+        }
       }
     }
   }
