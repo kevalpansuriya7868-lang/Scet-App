@@ -590,6 +590,7 @@ export async function inventoryTab(code) {
         h('button', { class: 'btn danger sm', onclick: () => remove(c) }, 'Delete')))));
   };
 
+  function edit(c) {
     const f = fields([
       { name: 'name', label: 'Component name', value: c?.name }, { name: 'category', label: 'Category', value: c?.category },
       { name: 'specifications', label: 'Specifications (e.g. 32-bit, 5V, 0-32°C)', value: c?.specifications }, { name: 'totalQty', label: 'Total quantity', type: 'number', min: 1, value: c?.totalQty },
