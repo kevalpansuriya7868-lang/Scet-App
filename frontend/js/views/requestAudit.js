@@ -24,7 +24,8 @@ export async function requestAuditTab(code) {
   const tableContainer = h('div', { class: 'tbl-wrap' });
 
   function openDecisionDetailModal(r) {
-    const isAccepted = r.status === 'ACCEPTED';
+    const isAccepted = r.status === 'ACCEPTED' || r.status === 'ISSUED';
+    const isIssued = r.status === 'ISSUED';
     const items = Array.isArray(r.items) && r.items.length > 0 ? r.items : [{ compId: r.compId, compName: r.compName, qty: r.qty || 1 }];
     const itemsSummary = items.map(it => `${it.qty} × ${it.compName || it.compId} (${it.compId})`).join(', ');
 
@@ -37,9 +38,9 @@ export async function requestAuditTab(code) {
           h('span', { style: 'font-size:1.8em;line-height:1' }, isAccepted ? '✅' : '❌'),
           h('div', {},
             h('div', { style: `font-weight:800;font-size:1.1em;color:${isAccepted ? 'var(--green)' : 'var(--red)'}` },
-              isAccepted ? 'REQUEST ACCEPTED & SCHEDULED' : 'REQUEST DENIED / REJECTED'
+              isIssued ? 'REQUEST ACCEPTED & ISSUED' : (isAccepted ? 'REQUEST ACCEPTED & SCHEDULED' : 'REQUEST DENIED / REJECTED')
             ),
-            h('div', { class: 'muted small' }, `Request ID #${r.id.slice(-6)} · Branch ${r.branchCode || code}`)
+            h('div', { class: 'muted small' }, `Request ID #${r.id.slice(-6)} · Branch ${r.branchCode || code}${isIssued && r.gatePassNo ? ` · Gate Pass: ${r.gatePassNo}` : ''}`)
           )
         ),
         h('div', { style: 'text-align:right' },
@@ -115,11 +116,11 @@ export async function requestAuditTab(code) {
   }
 
   function render() {
-    // Only ACCEPTED and REJECTED decisions are shown
-    const decisions = allRequests.filter(r => r.status === 'ACCEPTED' || r.status === 'REJECTED');
+    // Show ACCEPTED, ISSUED (which were accepted), and REJECTED decisions only. PENDING requests have no decision yet.
+    const decisions = allRequests.filter(r => r.status === 'ACCEPTED' || r.status === 'ISSUED' || r.status === 'REJECTED');
 
     const totalCount = decisions.length;
-    const acceptedCount = decisions.filter(r => r.status === 'ACCEPTED').length;
+    const acceptedCount = decisions.filter(r => r.status === 'ACCEPTED' || r.status === 'ISSUED').length;
     const rejectedCount = decisions.filter(r => r.status === 'REJECTED').length;
 
     // 1. Stats bar
@@ -153,8 +154,10 @@ export async function requestAuditTab(code) {
 
     // 3. Filter list
     let list = [...decisions];
-    if (filterState !== 'ALL') {
-      list = list.filter(r => r.status === filterState);
+    if (filterState === 'ACCEPTED') {
+      list = list.filter(r => r.status === 'ACCEPTED' || r.status === 'ISSUED');
+    } else if (filterState === 'REJECTED') {
+      list = list.filter(r => r.status === 'REJECTED');
     }
 
     if (searchQuery) {
@@ -162,8 +165,9 @@ export async function requestAuditTab(code) {
       list = list.filter(r => {
         const sName = (r.studentName || '').toLowerCase();
         const en = (r.enrollmentNo || '').toLowerCase();
-        const byWho = (r.status === 'ACCEPTED' ? (r.acceptedBy || '') : (r.rejectedBy || '')).toLowerCase();
-        const timeLoc = (r.collectionTime || '' + ' ' + (r.collectionLocation || '') + ' ' + (r.rejectionReason || '')).toLowerCase();
+        const isAcc = r.status === 'ACCEPTED' || r.status === 'ISSUED';
+        const byWho = (isAcc ? (r.acceptedBy || '') : (r.rejectedBy || '')).toLowerCase();
+        const timeLoc = (r.collectionTime || '' + ' ' + (r.collectionLocation || '') + ' ' + (r.rejectionReason || '') + ' ' + (r.gatePassNo || '')).toLowerCase();
         const itemsMatch = (r.items || []).some(it => (it.compName || it.compId || '').toLowerCase().includes(q));
         return sName.includes(q) || en.includes(q) || byWho.includes(q) || timeLoc.includes(q) || itemsMatch;
       });
@@ -199,17 +203,32 @@ export async function requestAuditTab(code) {
 
     const tbody = h('tbody');
     tbody.replaceChildren(...list.map(r => {
-      const isAccepted = r.status === 'ACCEPTED';
+      const isAccepted = r.status === 'ACCEPTED' || r.status === 'ISSUED';
+      const isIssued = r.status === 'ISSUED';
       const items = Array.isArray(r.items) && r.items.length > 0 ? r.items : [{ compId: r.compId, compName: r.compName, qty: r.qty || 1 }];
 
       // Decision Cell
-      const decisionBadge = isAccepted
-        ? h('span', {
+      let decisionBadge;
+      if (isIssued) {
+        decisionBadge = h('div', { style: 'display:flex;flex-direction:column;gap:3px;align-items:flex-start' },
+          h('span', {
             style: 'background:rgba(5,150,105,0.12);color:var(--green);border:1.5px solid var(--green);padding:4px 10px;border-radius:20px;font-weight:800;font-size:0.82em;display:inline-flex;align-items:center;gap:4px'
-          }, '✅ ACCEPTED')
-        : h('span', {
-            style: 'background:rgba(220,38,38,0.12);color:var(--red);border:1.5px solid var(--red);padding:4px 10px;border-radius:20px;font-weight:800;font-size:0.82em;display:inline-flex;align-items:center;gap:4px'
-          }, '❌ DENIED');
+          }, '✅ ACCEPTED'),
+          h('span', {
+            class: 'badge sm info',
+            style: 'font-size:0.7em;padding:1px 6px',
+            title: `Gate pass ${r.gatePassNo || ''} issued`
+          }, `⚡ ISSUED${r.gatePassNo ? ` (${r.gatePassNo})` : ''}`)
+        );
+      } else if (isAccepted) {
+        decisionBadge = h('span', {
+          style: 'background:rgba(5,150,105,0.12);color:var(--green);border:1.5px solid var(--green);padding:4px 10px;border-radius:20px;font-weight:800;font-size:0.82em;display:inline-flex;align-items:center;gap:4px'
+        }, '✅ ACCEPTED');
+      } else {
+        decisionBadge = h('span', {
+          style: 'background:rgba(220,38,38,0.12);color:var(--red);border:1.5px solid var(--red);padding:4px 10px;border-radius:20px;font-weight:800;font-size:0.82em;display:inline-flex;align-items:center;gap:4px'
+        }, '❌ DENIED');
+      }
 
       // Who Cell
       const byWhom = isAccepted ? (r.acceptedBy || 'Admin') : (r.rejectedBy || 'Admin');
@@ -231,6 +250,9 @@ export async function requestAuditTab(code) {
           ),
           h('div', { style: 'font-size:0.8em;color:var(--green);font-weight:600' },
             `📍 Loc: ${r.collectionLocation || r.collectionNote || 'Hardware Lab Counter'}`
+          ),
+          isIssued && h('div', { style: 'font-size:0.75em;color:var(--blue);font-weight:700;margin-top:2px' },
+            `✓ Gate Pass: ${r.gatePassNo || `#${r.issueSeq}`}`
           )
         );
       } else {
@@ -275,14 +297,18 @@ export async function requestAuditTab(code) {
         h('td', {}, whoCell),
         h('td', {}, decisionDetailsCell),
         h('td', {}, studentCell),
-        h('td', {}, compsCell),
+        h('td', {
+          style: 'border-left:1px solid var(--line,#cbd5e1);border-right:1px solid var(--line,#cbd5e1);vertical-align:middle;padding:6px 12px'
+        }, compsCell),
         h('td', {}, viewBtn)
       );
     }));
 
     tableContainer.replaceChildren(
       h('table', {},
-        h('thead', {}, h('tr', {}, heads.map(x => h('th', {}, x)))),
+        h('thead', {}, h('tr', {}, heads.map(x => h('th', {
+          style: x === 'Components Requested' ? 'border-left:1px solid var(--line,#cbd5e1);border-right:1px solid var(--line,#cbd5e1);' : ''
+        }, x)))),
         tbody
       )
     );
