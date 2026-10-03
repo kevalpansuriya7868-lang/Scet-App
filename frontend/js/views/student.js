@@ -549,11 +549,15 @@ async function myRequests(refresh) {
 
       tbody.replaceChildren(...filtered.map(r => {
         const items = Array.isArray(r.items) && r.items.length > 0 ? r.items : [{ compId: r.compId, compName: r.compName, qty: r.qty || 1 }];
-        const compSummary = h('div', { style: 'display:flex;flex-direction:column;gap:4px;min-width:160px' },
-          ...items.map(it => h('div', { style: 'display:flex;align-items:baseline;gap:5px;flex-wrap:wrap;line-height:1.3' },
-            h('span', { style: 'font-weight:600;font-size:0.9em;color:var(--ink)' }, it.compName || it.compId),
-            h('span', { class: 'muted', style: 'font-size:0.75em;font-family:monospace' }, `(${it.compId})`),
-            h('span', { class: 'badge sm info', style: 'font-size:0.72em;padding:0 5px' }, `×${it.qty}`)
+        const compSummary = h('div', { style: 'display:flex;flex-direction:column;min-width:160px;max-width:300px' },
+          ...items.map((it, idx) => h('div', {
+            style: `display:flex;align-items:center;justify-content:space-between;gap:6px;padding:5px 0;line-height:1.35;${idx < items.length - 1 ? 'border-bottom:1px solid var(--line,#cbd5e1);' : ''}`
+          },
+            h('div', { style: 'display:flex;align-items:baseline;gap:5px;flex-wrap:wrap;flex:1' },
+              h('span', { style: 'font-weight:600;font-size:0.9em;color:var(--ink)' }, it.compName || it.compId),
+              h('span', { class: 'muted', style: 'font-size:0.75em;font-family:monospace' }, `(${it.compId})`),
+            ),
+            h('span', { class: 'badge sm info', style: 'font-size:0.72em;padding:2px 6px;font-weight:700;flex-shrink:0' }, `×${it.qty}`)
           ))
         );
 
@@ -680,11 +684,15 @@ async function myIssues() {
   if (!rows.length) return h('p', { class: 'muted' }, 'You have no issue records yet.');
   return table(['Pass', 'Component', 'Qty', 'Issued', 'Due', 'Status', 'Fine', ''], rows.map((r) => {
     const items = Array.isArray(r.items) && r.items.length > 0 ? r.items : [{ compId: r.compId, compName: r.compName, qty: r.issueQty }];
-    const compSummary = h('div', { style: 'display:flex;flex-direction:column;gap:4px;min-width:140px' },
-      ...items.map(it => h('div', { style: 'display:flex;align-items:baseline;gap:5px;flex-wrap:wrap;line-height:1.3' },
-        h('span', { style: 'font-weight:600;font-size:0.9em;color:var(--text)' }, it.compName || it.compId),
-        h('span', { class: 'muted', style: 'font-size:0.75em;font-family:monospace' }, `(${it.compId})`),
-        h('span', { class: 'badge sm info', style: 'font-size:0.72em;padding:0 5px' }, `×${it.qty}`)
+    const compSummary = h('div', { style: 'display:flex;flex-direction:column;min-width:140px;max-width:300px' },
+      ...items.map((it, idx) => h('div', {
+        style: `display:flex;align-items:center;justify-content:space-between;gap:6px;padding:5px 0;line-height:1.35;${idx < items.length - 1 ? 'border-bottom:1px solid var(--line,#cbd5e1);' : ''}`
+      },
+        h('div', { style: 'display:flex;align-items:baseline;gap:5px;flex-wrap:wrap;flex:1' },
+          h('span', { style: 'font-weight:600;font-size:0.9em;color:var(--text)' }, it.compName || it.compId),
+          h('span', { class: 'muted', style: 'font-size:0.75em;font-family:monospace' }, `(${it.compId})`),
+        ),
+        h('span', { class: 'badge sm info', style: 'font-size:0.72em;padding:2px 6px;font-weight:700;flex-shrink:0' }, `×${it.qty}`)
       ))
     );
     const totalQty = items.reduce((acc, it) => acc + (it.qty || 0), 0);

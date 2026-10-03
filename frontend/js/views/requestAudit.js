@@ -254,10 +254,12 @@ export async function requestAuditTab(code) {
       );
 
       // Components Requested Cell
-      const compsCell = h('div', { style: 'display:flex;flex-direction:column;gap:3px;max-width:220px' },
-        ...items.map(it => h('div', { style: 'font-size:0.82em;display:flex;align-items:center;gap:4px' },
+      const compsCell = h('div', { style: 'display:flex;flex-direction:column;max-width:260px' },
+        ...items.map((it, idx) => h('div', {
+          style: `font-size:0.82em;display:flex;align-items:center;justify-content:space-between;gap:6px;padding:4px 0;${idx < items.length - 1 ? 'border-bottom:1px solid var(--line,#cbd5e1);' : ''}`
+        },
           h('span', { style: 'font-weight:600;color:var(--text)' }, it.compName || it.compId),
-          h('span', { class: 'badge sm info', style: 'font-size:0.7em;padding:0 4px' }, `×${it.qty}`)
+          h('span', { class: 'badge sm info', style: 'font-size:0.7em;padding:0 5px;flex-shrink:0' }, `×${it.qty}`)
         ))
       );
 

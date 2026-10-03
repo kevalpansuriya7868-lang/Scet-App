@@ -221,20 +221,27 @@ export async function ledgerTab(code) {
         ? r.items
         : [{ compId: r.compId, compName: r.compName, qty: r.issueQty, returnedQty: r.returnedQty || 0, remainingQty: r.remainingQty, returnCondition: r.returnCondition, conditions: r.conditions }];
 
-      const compSummary = h('div', { class: 'ledger-comp-list', style: 'display:flex;flex-direction:column;gap:5px;min-width:170px;max-width:280px' },
-        ...items.map((it) => {
+      const compSummary = h('div', { class: 'ledger-comp-list', style: 'display:flex;flex-direction:column;min-width:170px;max-width:300px' },
+        ...items.map((it, idx) => {
           const isReturned = (it.returnedQty || 0) > 0;
           const isFullyRet = (it.returnedQty || 0) >= it.qty;
           const condText = getConditionText(it.conditions, it.returnCondition, it.returnedQty);
-          return h('div', { class: 'comp-row', style: 'display:flex;align-items:baseline;gap:5px;flex-wrap:wrap;line-height:1.35' },
-            h('span', { style: 'font-weight:600;color:var(--text);font-size:0.9em' }, it.compName || it.compId),
-            h('span', { class: 'muted', style: 'font-size:0.75em;font-family:monospace' }, `(${it.compId})`),
-            h('span', { class: 'badge sm info', style: 'font-size:0.72em;padding:0 5px' }, `×${it.qty}`),
-            isReturned && h('span', {
-              class: `badge sm ${isFullyRet ? 'ok' : 'warn'}`,
-              style: 'font-size:0.7em;padding:1px 6px',
-              title: `Returned on ${fmt(r.returnDate)}`
-            }, `↩ ${it.returnedQty}${condText ? ` (${condText})` : ''}`)
+          return h('div', {
+            class: 'comp-row',
+            style: `display:flex;align-items:center;justify-content:space-between;gap:8px;line-height:1.35;padding:6px 0;${idx < items.length - 1 ? 'border-bottom:1px solid var(--line,#cbd5e1);' : ''}`
+          },
+            h('div', { style: 'display:flex;align-items:baseline;gap:5px;flex-wrap:wrap;flex:1' },
+              h('span', { style: 'font-weight:600;color:var(--text);font-size:0.9em' }, it.compName || it.compId),
+              h('span', { class: 'muted', style: 'font-size:0.75em;font-family:monospace' }, `(${it.compId})`),
+            ),
+            h('div', { style: 'display:flex;align-items:center;gap:4px;flex-shrink:0' },
+              h('span', { class: 'badge sm info', style: 'font-size:0.72em;padding:2px 6px;font-weight:700' }, `×${it.qty}`),
+              isReturned && h('span', {
+                class: `badge sm ${isFullyRet ? 'ok' : 'warn'}`,
+                style: 'font-size:0.7em;padding:1px 6px',
+                title: `Returned on ${fmt(r.returnDate)}`
+              }, `↩ ${it.returnedQty}${condText ? ` (${condText})` : ''}`)
+            )
           );
         })
       );
@@ -1180,12 +1187,21 @@ export async function ledgerTab(code) {
 
     reqTbody.replaceChildren(...list.map((r) => {
       const items = Array.isArray(r.items) && r.items.length > 0 ? r.items : [{ compId: r.compId, compName: r.compName, qty: r.qty || 1 }];
-      const compSummary = h('div', { style: 'display:flex;flex-direction:column;gap:4px;min-width:160px;max-width:280px' },
-        ...items.map((it) => h('div', { style: 'display:flex;align-items:baseline;gap:5px;flex-wrap:wrap;line-height:1.3' },
-          h('span', { style: 'font-weight:600;font-size:0.9em;color:var(--text)' }, it.compName || it.compId),
-          h('span', { class: 'muted', style: 'font-size:0.75em;font-family:monospace' }, `(${it.compId})`),
-          h('span', { class: 'badge sm info', style: 'font-size:0.72em;padding:0 5px' }, `×${it.qty}`)
-        ))
+      const compSummary = h('td', {
+        class: 'td-requested-comps',
+        style: 'border-left:1px solid var(--line,#cbd5e1);border-right:1px solid var(--line,#cbd5e1);vertical-align:middle;padding:6px 12px'
+      },
+        h('div', { style: 'display:flex;flex-direction:column;min-width:180px;max-width:320px' },
+          ...items.map((it, idx) => h('div', {
+            style: `display:flex;align-items:center;justify-content:space-between;gap:8px;padding:6px 0;line-height:1.35;${idx < items.length - 1 ? 'border-bottom:1px solid var(--line,#cbd5e1);' : ''}`
+          },
+            h('div', { style: 'display:flex;align-items:baseline;gap:5px;flex-wrap:wrap;flex:1' },
+              h('span', { style: 'font-weight:600;font-size:0.9em;color:var(--text)' }, it.compName || it.compId),
+              h('span', { class: 'muted', style: 'font-size:0.75em;font-family:monospace' }, `(${it.compId})`),
+            ),
+            h('span', { class: 'badge sm info', style: 'font-size:0.75em;padding:2px 7px;font-weight:700;flex-shrink:0' }, `×${it.qty}`)
+          ))
+        )
       );
 
       let statusCell;
@@ -1311,7 +1327,9 @@ export async function ledgerTab(code) {
       filterBar,
       h('div', { class: 'tbl-wrap' },
         h('table', {},
-          h('thead', {}, h('tr', {}, reqHeads.map((x) => h('th', {}, x)))),
+          h('thead', {}, h('tr', {}, reqHeads.map((x) => h('th', {
+            style: x === 'Requested Components' ? 'border-left:1px solid var(--line,#cbd5e1);border-right:1px solid var(--line,#cbd5e1);' : ''
+          }, x)))),
           reqTbody
         )
       )
